@@ -145,13 +145,6 @@ select:focus-visible {
   letter-spacing: 0.11em;
 }
 
-.brand-row p {
-  margin: 0;
-  color: #929eaa;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-
 .close-sidebar {
   display: none;
 }

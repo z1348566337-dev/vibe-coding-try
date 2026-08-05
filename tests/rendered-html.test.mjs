@@ -19,7 +19,8 @@ test("首页可正常输出中文笔记界面", async () => {
 
   const html = await response.text();
   assert.match(html, /<html lang="zh-CN">/i);
-  assert.match(html, /<title>拾光笔记 · 读后感与观后感<\/title>/i);
+  assert.match(html, /<title>杰森笔记 · 读后感与观后感<\/title>/i);
+  assert.doesNotMatch(html, /记下触动，梳理思考/);
   assert.match(html, /新建读后感/);
   assert.match(html, /思维导图/);
   assert.match(html, /内容仅保存在此浏览器/);

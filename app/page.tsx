@@ -172,8 +172,7 @@ export default function Home() {
             <span />
           </div>
           <div>
-            <strong>拾光笔记</strong>
-            <p>记下触动，梳理思考</p>
+            <strong>杰森笔记</strong>
           </div>
           <button className="close-sidebar" onClick={() => setSidebarOpen(false)} aria-label="关闭笔记列表">
             ×
@@ -266,7 +265,7 @@ export default function Home() {
       <section className="workspace">
         <div className="mobile-bar">
           <button onClick={() => setSidebarOpen(true)} aria-label="打开笔记列表">☰</button>
-          <strong>拾光笔记</strong>
+          <strong>杰森笔记</strong>
           <span>{saveState}</span>
         </div>
 
