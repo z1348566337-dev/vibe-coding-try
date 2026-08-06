@@ -101,6 +101,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const registerServiceWorker = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    };
+
+    if (document.readyState === "complete") {
+      registerServiceWorker();
+      return;
+    }
+
+    window.addEventListener("load", registerServiceWorker, { once: true });
+    return () => window.removeEventListener("load", registerServiceWorker);
+  }, []);
+
+  useEffect(() => {
     if (!loaded) return;
     const timer = window.setTimeout(() => {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));

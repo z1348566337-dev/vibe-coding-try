@@ -25,6 +25,10 @@ body {
   background: var(--paper);
 }
 
+html {
+  background: var(--navy);
+}
+
 body {
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -54,6 +58,7 @@ select:focus-visible {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   background:
     radial-gradient(circle at 90% 10%, rgba(216, 189, 148, 0.11), transparent 32%),
@@ -67,6 +72,7 @@ select:focus-visible {
   width: 350px;
   min-width: 350px;
   height: 100vh;
+  height: 100dvh;
   flex-direction: column;
   color: #eef2f3;
   background:
@@ -1080,11 +1086,11 @@ select:focus-visible {
 
   .mobile-bar {
     display: flex;
-    height: 54px;
-    min-height: 54px;
+    height: calc(54px + env(safe-area-inset-top));
+    min-height: calc(54px + env(safe-area-inset-top));
     align-items: center;
     justify-content: space-between;
-    padding: 0 18px;
+    padding: env(safe-area-inset-top) 18px 0;
     border-bottom: 1px solid var(--line);
   }
 
