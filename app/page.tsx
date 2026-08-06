@@ -9,6 +9,16 @@ import {
   type NotesBackup,
 } from "./lib/backup";
 import {
+  buildMindMapPrintHtml,
+  buildNotePrintHtml,
+  canvasToPngFile,
+  createExportBaseName,
+  noteToMarkdown,
+  noteToPlainText,
+  openPrintPreview,
+  renderMindMapCanvas,
+} from "./lib/export";
+import {
   DEFAULT_NOTES,
   addMindChild,
   createNote,
@@ -101,6 +111,9 @@ export default function Home() {
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [dataMessage, setDataMessage] = useState("");
   const [dataError, setDataError] = useState("");
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportError, setExportError] = useState("");
   const writingAreaRef = useRef<HTMLTextAreaElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
 
@@ -192,7 +205,7 @@ export default function Home() {
     });
   };
 
-  const downloadBackup = (file: File) => {
+  const downloadFile = (file: File) => {
     const url = URL.createObjectURL(file);
     const link = document.createElement("a");
     link.href = url;
@@ -218,12 +231,12 @@ export default function Home() {
         });
         setDataMessage("备份文件已生成，请确认已保存到“文件”App。");
       } else {
-        downloadBackup(file);
+        downloadFile(file);
         setDataMessage(`已导出 ${fileName}`);
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      downloadBackup(file);
+      downloadFile(file);
       setDataMessage(`已导出 ${fileName}`);
     }
   };
@@ -269,6 +282,86 @@ export default function Home() {
     setImportPreview(null);
     setDataMessage("");
     setDataError("");
+  };
+
+  const openExportDialog = () => {
+    setExportDialogOpen(true);
+    setExportMessage("");
+    setExportError("");
+  };
+
+  const shareOrDownload = async (file: File, successMessage: string) => {
+    setExportMessage("");
+    setExportError("");
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: file.name, files: [file] });
+        setExportMessage("文件已生成，请确认已经分享或保存。");
+      } else {
+        downloadFile(file);
+        setExportMessage(successMessage);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      downloadFile(file);
+      setExportMessage(successMessage);
+    }
+  };
+
+  const exportMarkdown = () => {
+    if (!current) return;
+    const fileName = `${createExportBaseName(current)}.md`;
+    void shareOrDownload(
+      new File([noteToMarkdown(current)], fileName, { type: "text/markdown;charset=utf-8" }),
+      `已导出 ${fileName}`,
+    );
+  };
+
+  const exportPlainText = () => {
+    if (!current) return;
+    const fileName = `${createExportBaseName(current)}.txt`;
+    void shareOrDownload(
+      new File([noteToPlainText(current)], fileName, { type: "text/plain;charset=utf-8" }),
+      `已导出 ${fileName}`,
+    );
+  };
+
+  const exportMindMapPng = () => {
+    if (!current) return;
+    setExportMessage("");
+    setExportError("");
+    try {
+      const canvas = renderMindMapCanvas(current.mindMap);
+      const fileName = `${createExportBaseName(current)}-思维导图.png`;
+      void shareOrDownload(canvasToPngFile(canvas, fileName), `已导出 ${fileName}`);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "无法生成思维导图图片。");
+    }
+  };
+
+  const exportNotePdf = () => {
+    if (!current) return;
+    setExportMessage("");
+    setExportError("");
+    try {
+      openPrintPreview(buildNotePrintHtml(current));
+      setExportMessage("已打开系统打印预览，可从预览中保存或分享 PDF。");
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "无法打开 PDF 打印预览。");
+    }
+  };
+
+  const exportMindMapPdf = () => {
+    if (!current) return;
+    setExportMessage("");
+    setExportError("");
+    try {
+      const canvas = renderMindMapCanvas(current.mindMap);
+      openPrintPreview(buildMindMapPrintHtml(current, canvas.toDataURL("image/png")));
+      setExportMessage("已打开横向打印预览，可从预览中保存或分享 PDF。");
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "无法生成思维导图 PDF。");
+    }
   };
 
   const confirmDelete = () => {
@@ -416,6 +509,7 @@ export default function Home() {
                 <span className={saveState === "已保存" ? "saved" : "saving"} />
                 {saveState}
               </div>
+              <button className="export-note" onClick={openExportDialog}>导出/分享</button>
               <button className="delete-note" onClick={() => setPendingDelete(true)}>删除笔记</button>
             </header>
 
@@ -651,6 +745,75 @@ export default function Home() {
             {dataError && <p className="data-feedback error" role="alert">{dataError}</p>}
             {dataMessage && <p className="data-feedback success" role="status">{dataMessage}</p>}
             <p className="backup-privacy">备份文件未加密，包含完整笔记内容，请妥善保存。</p>
+          </section>
+        </div>
+      )}
+
+      {exportDialogOpen && current && (
+        <div className="dialog-backdrop" role="presentation" onClick={() => setExportDialogOpen(false)}>
+          <section
+            className="data-dialog export-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>当前笔记</span>
+                <h2 id="export-dialog-title">导出与分享</h2>
+              </div>
+              <button type="button" onClick={() => setExportDialogOpen(false)} aria-label="关闭导出与分享">
+                ×
+              </button>
+            </header>
+
+            <div className="export-section">
+              <div className="export-section-heading">
+                <strong>笔记内容</strong>
+                <p>包含作品信息、正文和思维导图大纲。</p>
+              </div>
+              <div className="export-grid">
+                <button type="button" onClick={exportNotePdf}>
+                  <span className="format-badge pdf">PDF</span>
+                  <strong>阅读版 PDF</strong>
+                  <small>进入系统打印与分享</small>
+                </button>
+                <button type="button" onClick={exportMarkdown}>
+                  <span className="format-badge markdown">MD</span>
+                  <strong>Markdown</strong>
+                  <small>适合继续编辑和迁移</small>
+                </button>
+                <button type="button" onClick={exportPlainText}>
+                  <span className="format-badge text">TXT</span>
+                  <strong>纯文本</strong>
+                  <small>兼容微信和备忘录</small>
+                </button>
+              </div>
+            </div>
+
+            <div className="export-section">
+              <div className="export-section-heading">
+                <strong>思维导图</strong>
+                <p>自动展开完整层级，不包含编辑按钮。</p>
+              </div>
+              <div className="export-grid two-column">
+                <button type="button" onClick={exportMindMapPng}>
+                  <span className="format-badge image">PNG</span>
+                  <strong>高清图片</strong>
+                  <small>适合相册、微信和课件</small>
+                </button>
+                <button type="button" onClick={exportMindMapPdf}>
+                  <span className="format-badge pdf">PDF</span>
+                  <strong>横向 PDF</strong>
+                  <small>适合打印和归档</small>
+                </button>
+              </div>
+            </div>
+
+            {exportError && <p className="data-feedback error" role="alert">{exportError}</p>}
+            {exportMessage && <p className="data-feedback success" role="status">{exportMessage}</p>}
+            <p className="backup-privacy">文件仅在当前设备生成，不会上传笔记内容。</p>
           </section>
         </div>
       )}

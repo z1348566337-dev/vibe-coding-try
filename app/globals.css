@@ -520,13 +520,27 @@ select:focus-visible {
   to { opacity: 0.35; }
 }
 
+.export-note,
 .delete-note {
   padding: 7px 10px;
-  color: #9a8c88;
   border: 0;
   border-radius: 5px;
   background: transparent;
   font-size: 11px;
+}
+
+.export-note {
+  margin-right: 4px;
+  color: #68788b;
+}
+
+.export-note:hover {
+  color: #b45f49;
+  background: #f6ebe6;
+}
+
+.delete-note {
+  color: #9a8c88;
 }
 
 .delete-note:hover {
@@ -1204,6 +1218,111 @@ select:focus-visible {
   text-align: center;
 }
 
+.export-dialog {
+  width: min(650px, 100%);
+}
+
+.export-section + .export-section {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #ebe5db;
+}
+
+.export-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 11px;
+}
+
+.export-section-heading strong {
+  color: #4d5969;
+  font-size: 12px;
+}
+
+.export-section-heading p {
+  margin: 0;
+  color: #97958f;
+  font-size: 9px;
+}
+
+.export-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.export-grid.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.export-grid > button {
+  min-height: 112px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid #e4ded4;
+  border-radius: 10px;
+  background: #fbf8f2;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.export-grid > button:hover {
+  border-color: #d7b5a8;
+  box-shadow: 0 7px 18px rgba(72, 63, 53, 0.08);
+  transform: translateY(-1px);
+}
+
+.format-badge {
+  display: inline-grid;
+  min-width: 38px;
+  height: 26px;
+  place-items: center;
+  margin-bottom: 11px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.format-badge.pdf {
+  color: #a84f3d;
+  background: #f6dfd8;
+}
+
+.format-badge.markdown {
+  color: #506d86;
+  background: #e3edf3;
+}
+
+.format-badge.text {
+  color: #6b6d65;
+  background: #ebeae4;
+}
+
+.format-badge.image {
+  color: #547158;
+  background: #e2eee2;
+}
+
+.export-grid strong,
+.export-grid small {
+  display: block;
+}
+
+.export-grid strong {
+  color: #465164;
+  font-size: 11px;
+}
+
+.export-grid small {
+  margin-top: 5px;
+  color: #99968f;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
 .dialog-mark {
   display: grid;
   width: 38px;
@@ -1404,6 +1523,35 @@ select:focus-visible {
 
   .import-preview dl {
     grid-template-columns: 1fr;
+  }
+
+  .export-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .export-grid,
+  .export-grid.two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .export-grid > button {
+    display: grid;
+    min-height: 74px;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 12px;
+    align-items: center;
+  }
+
+  .format-badge {
+    grid-row: 1 / 3;
+    margin-bottom: 0;
+  }
+
+  .export-grid small {
+    margin-top: 1px;
   }
 
   .editor-location b,
