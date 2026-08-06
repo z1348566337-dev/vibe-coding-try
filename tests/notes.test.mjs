@@ -4,6 +4,7 @@ import {
   DEFAULT_NOTES,
   addMindChild,
   createNote,
+  createQuickNote,
   deleteMindNode,
   formatUpdatedAt,
   matchesNote,
@@ -17,6 +18,18 @@ test("新建笔记具备默认思维导图和类型", () => {
   assert.equal(note.createdAt, now);
   assert.equal(note.mindMap.children.length, 3);
   assert.equal(note.mindMap.children[0].text, "核心观点");
+});
+
+test("快速记录会创建可立即输入正文的空白笔记", () => {
+  const now = new Date("2026-08-06T08:00:00+08:00").getTime();
+  const note = createQuickNote(now);
+
+  assert.equal(note.type, "book");
+  assert.equal(note.title, "");
+  assert.equal(note.source, "");
+  assert.equal(note.content, "");
+  assert.deepEqual(note.tags, []);
+  assert.equal(note.createdAt, now);
 });
 
 test("搜索可匹配标题、正文和标签，并遵守类型筛选", () => {

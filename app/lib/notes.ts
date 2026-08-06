@@ -110,6 +110,10 @@ export function createNote(type: NoteType, now = Date.now()): Note {
   };
 }
 
+export function createQuickNote(now = Date.now()): Note {
+  return createNote("book", now);
+}
+
 export function matchesNote(note: Note, query: string, filter: "all" | NoteType) {
   if (filter !== "all" && note.type !== filter) return false;
   const term = query.trim().toLocaleLowerCase("zh-CN");

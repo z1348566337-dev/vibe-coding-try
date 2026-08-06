@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_NOTES,
   addMindChild,
   createNote,
+  createQuickNote,
   deleteMindNode,
   formatUpdatedAt,
   matchesNote,
@@ -82,6 +83,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [saveState, setSaveState] = useState("已保存");
   const [pendingDelete, setPendingDelete] = useState(false);
+  const writingAreaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
@@ -154,6 +156,21 @@ export default function Home() {
     setQuery("");
     setView("writing");
     setSidebarOpen(false);
+  };
+
+  const handleQuickCapture = () => {
+    const note = createQuickNote();
+    setSaveState("保存中…");
+    setNotes((items) => [note, ...items]);
+    setSelectedId(note.id);
+    setFilter("all");
+    setQuery("");
+    setView("writing");
+    setSidebarOpen(false);
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => writingAreaRef.current?.focus());
+    });
   };
 
   const confirmDelete = () => {
@@ -380,6 +397,7 @@ export default function Home() {
                 {view === "writing" ? (
                   <div className="writing-area">
                     <textarea
+                      ref={writingAreaRef}
                       value={current.content}
                       onChange={(event) => updateCurrent({ content: event.target.value })}
                       placeholder={"从这里开始记录…\n\n• 哪个情节或观点最触动你？\n• 它让你想到了什么？\n• 你会如何将它应用在生活中？"}
@@ -426,6 +444,16 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      <button
+        className="quick-capture"
+        type="button"
+        onClick={handleQuickCapture}
+        aria-label="快速记录一条想法"
+      >
+        <span aria-hidden="true">＋</span>
+        速记
+      </button>
 
       {pendingDelete && current && (
         <div className="dialog-backdrop" role="presentation" onClick={() => setPendingDelete(false)}>

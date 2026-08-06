@@ -1043,6 +1043,10 @@ select:focus-visible {
   display: none;
 }
 
+.quick-capture {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .sidebar {
     position: fixed;
@@ -1082,6 +1086,39 @@ select:focus-visible {
   .mobile-overlay.show {
     visibility: visible;
     opacity: 1;
+  }
+
+  .quick-capture {
+    position: fixed;
+    z-index: 12;
+    right: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    display: inline-flex;
+    min-width: 84px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 16px;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 23px;
+    background: var(--coral);
+    box-shadow: 0 10px 28px rgba(169, 79, 53, 0.3);
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+  }
+
+  .quick-capture:active {
+    transform: translateY(1px);
+    box-shadow: 0 6px 18px rgba(169, 79, 53, 0.26);
+  }
+
+  .quick-capture span {
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1;
   }
 
   .mobile-bar {
@@ -1128,6 +1165,7 @@ select:focus-visible {
   .editor-content {
     width: calc(100% - 40px);
     padding-top: 34px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
   }
 }
 
