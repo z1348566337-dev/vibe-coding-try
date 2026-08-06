@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  createBackupFilename,
+  mergeNotes,
+  parseBackup,
+  serializeBackup,
+  type NotesBackup,
+} from "./lib/backup";
+import {
   DEFAULT_NOTES,
   addMindChild,
   createNote,
@@ -16,6 +23,13 @@ import {
 } from "./lib/notes";
 
 const STORAGE_KEY = "inspiration-notes-v1";
+const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
+
+type ImportPreview = {
+  fileName: string;
+  backup: NotesBackup;
+  result: ReturnType<typeof mergeNotes>;
+};
 
 function MindMapBranch({
   node,
@@ -83,7 +97,12 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [saveState, setSaveState] = useState("已保存");
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [dataDialogOpen, setDataDialogOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [dataMessage, setDataMessage] = useState("");
+  const [dataError, setDataError] = useState("");
   const writingAreaRef = useRef<HTMLTextAreaElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
@@ -171,6 +190,85 @@ export default function Home() {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => writingAreaRef.current?.focus());
     });
+  };
+
+  const downloadBackup = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const handleExportBackup = async () => {
+    setDataError("");
+    setDataMessage("");
+    const fileName = createBackupFilename();
+    const file = new File([serializeBackup(notes)], fileName, { type: "application/json" });
+
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: "杰森笔记备份",
+          text: `${notes.length} 篇笔记的本地备份`,
+          files: [file],
+        });
+        setDataMessage("备份文件已生成，请确认已保存到“文件”App。");
+      } else {
+        downloadBackup(file);
+        setDataMessage(`已导出 ${fileName}`);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      downloadBackup(file);
+      setDataMessage(`已导出 ${fileName}`);
+    }
+  };
+
+  const handleBackupFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    setDataError("");
+    setDataMessage("");
+    setImportPreview(null);
+
+    try {
+      if (file.size > MAX_BACKUP_BYTES) throw new Error("备份文件超过 20 MB，无法导入。");
+      const backup = parseBackup(await file.text());
+      setImportPreview({ fileName: file.name, backup, result: mergeNotes(notes, backup.notes) });
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "无法读取该备份文件。");
+    } finally {
+      input.value = "";
+    }
+  };
+
+  const applyImport = () => {
+    if (!importPreview) return;
+    const mergedNotes = importPreview.result.notes;
+    setNotes(mergedNotes);
+    setSelectedId((id) =>
+      mergedNotes.some((note) => note.id === id)
+        ? id
+        : [...mergedNotes].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? "",
+    );
+    setSaveState("保存中…");
+    setImportPreview(null);
+    setDataError("");
+    setDataMessage(
+      `恢复完成：新增 ${importPreview.result.stats.added} 篇，更新 ${importPreview.result.stats.updated} 篇。`,
+    );
+  };
+
+  const openDataDialog = () => {
+    setDataDialogOpen(true);
+    setImportPreview(null);
+    setDataMessage("");
+    setDataError("");
   };
 
   const confirmDelete = () => {
@@ -289,6 +387,10 @@ export default function Home() {
           )}
         </div>
 
+        <button className="data-manage-button" onClick={openDataDialog} disabled={!loaded}>
+          <span aria-hidden="true">⇅</span>
+          数据管理
+        </button>
         <div className="local-note">
           <span className="status-dot" />
           内容仅保存在此浏览器
@@ -471,6 +573,84 @@ export default function Home() {
               <button className="dialog-cancel" onClick={() => setPendingDelete(false)}>取消</button>
               <button className="dialog-confirm" onClick={confirmDelete}>确认删除</button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {dataDialogOpen && (
+        <div className="dialog-backdrop" role="presentation" onClick={() => setDataDialogOpen(false)}>
+          <section
+            className="data-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="data-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>本地数据</span>
+                <h2 id="data-dialog-title">备份与恢复</h2>
+              </div>
+              <button type="button" onClick={() => setDataDialogOpen(false)} aria-label="关闭数据管理">
+                ×
+              </button>
+            </header>
+
+            <div className="data-action-card">
+              <div>
+                <strong>导出全部笔记</strong>
+                <p>生成普通备份文件，可保存到 iPhone“文件”App或 iCloud Drive。</p>
+              </div>
+              <button type="button" className="data-primary" onClick={handleExportBackup}>
+                导出备份
+              </button>
+            </div>
+
+            <div className="data-action-card">
+              <div>
+                <strong>从备份恢复</strong>
+                <p>导入前会检查文件并预览结果，不会用旧内容覆盖较新的笔记。</p>
+              </div>
+              <button type="button" className="data-secondary" onClick={() => backupInputRef.current?.click()}>
+                选择文件
+              </button>
+              <input
+                ref={backupInputRef}
+                className="backup-file-input"
+                type="file"
+                accept=".json,application/json"
+                onChange={handleBackupFile}
+              />
+            </div>
+
+            {importPreview && (
+              <div className="import-preview" aria-live="polite">
+                <div>
+                  <strong>可以恢复这个备份</strong>
+                  <span>{importPreview.fileName}</span>
+                </div>
+                <dl>
+                  <div><dt>备份时间</dt><dd>{new Date(importPreview.backup.exportedAt).toLocaleString("zh-CN")}</dd></div>
+                  <div><dt>笔记数量</dt><dd>{importPreview.backup.notes.length} 篇</dd></div>
+                  <div><dt>预计新增</dt><dd>{importPreview.result.stats.added} 篇</dd></div>
+                  <div><dt>预计更新</dt><dd>{importPreview.result.stats.updated} 篇</dd></div>
+                  <div><dt>保留现状</dt><dd>{importPreview.result.stats.unchanged} 篇</dd></div>
+                </dl>
+                <button
+                  type="button"
+                  onClick={applyImport}
+                  disabled={importPreview.result.stats.added + importPreview.result.stats.updated === 0}
+                >
+                  {importPreview.result.stats.added + importPreview.result.stats.updated === 0
+                    ? "没有需要恢复的内容"
+                    : "确认合并到现有笔记"}
+                </button>
+              </div>
+            )}
+
+            {dataError && <p className="data-feedback error" role="alert">{dataError}</p>}
+            {dataMessage && <p className="data-feedback success" role="status">{dataMessage}</p>}
+            <p className="backup-privacy">备份文件未加密，包含完整笔记内容，请妥善保存。</p>
           </section>
         </div>
       )}

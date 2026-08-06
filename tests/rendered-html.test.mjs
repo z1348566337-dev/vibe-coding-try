@@ -26,6 +26,7 @@ test("首页可正常输出中文笔记界面", async () => {
   assert.match(html, /思维导图/);
   assert.match(html, /aria-label="快速记录一条想法"/);
   assert.match(html, />速记<\/button>/);
+  assert.match(html, /数据管理/);
   assert.match(html, /内容仅保存在此浏览器/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

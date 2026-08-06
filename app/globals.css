@@ -417,6 +417,31 @@ select:focus-visible {
   font-size: 10px;
 }
 
+.data-manage-button {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0 23px 10px;
+  color: #aab4c0;
+  border: 1px solid #3b4b60;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 10px;
+}
+
+.data-manage-button:hover {
+  color: #f2f4f5;
+  border-color: #52647a;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.data-manage-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
 .status-dot {
   width: 6px;
   height: 6px;
@@ -985,6 +1010,200 @@ select:focus-visible {
   box-shadow: 0 22px 65px rgba(25, 34, 46, 0.22);
 }
 
+.data-dialog {
+  width: min(560px, 100%);
+  max-height: min(760px, calc(100dvh - 40px));
+  padding: 28px;
+  overflow-y: auto;
+  border: 1px solid #e7ded4;
+  border-radius: 16px;
+  background: #fffdf9;
+  box-shadow: 0 22px 65px rgba(25, 34, 46, 0.22);
+}
+
+.data-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.data-dialog > header span {
+  color: #b66b55;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.data-dialog h2 {
+  margin: 4px 0 0;
+  color: #344154;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.data-dialog > header button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #8c9299;
+  border: 1px solid #e1ddd5;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.data-action-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 17px 18px;
+  border: 1px solid #e7e1d7;
+  border-radius: 11px;
+  background: #faf7f1;
+}
+
+.data-action-card strong {
+  display: block;
+  color: #4f5968;
+  font-size: 12px;
+}
+
+.data-action-card p {
+  margin: 5px 0 0;
+  color: #93928d;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.data-action-card > button,
+.import-preview > button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.data-primary {
+  color: #fff;
+  border: 1px solid var(--coral);
+  background: var(--coral);
+}
+
+.data-secondary {
+  color: #667386;
+  border: 1px solid #cfd4d8;
+  background: #fff;
+}
+
+.backup-file-input {
+  display: none;
+}
+
+.import-preview {
+  margin-top: 14px;
+  padding: 17px 18px;
+  border: 1px solid #cbdccd;
+  border-radius: 11px;
+  background: #f5faf5;
+}
+
+.import-preview > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-preview strong {
+  color: #4f7059;
+  font-size: 11px;
+}
+
+.import-preview > div span {
+  max-width: 55%;
+  overflow: hidden;
+  color: #7f8c82;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-preview dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 14px 0;
+}
+
+.import-preview dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #dce8dd;
+}
+
+.import-preview dt,
+.import-preview dd {
+  margin: 0;
+  font-size: 9px;
+}
+
+.import-preview dt {
+  color: #8a968d;
+}
+
+.import-preview dd {
+  color: #55685a;
+  font-weight: 650;
+}
+
+.import-preview > button {
+  width: 100%;
+  color: #fff;
+  border: 1px solid #6f9278;
+  background: #6f9278;
+}
+
+.import-preview > button:disabled {
+  color: #7f8a82;
+  border-color: #d5dfd6;
+  background: #e8eee9;
+  cursor: default;
+}
+
+.data-feedback {
+  margin: 13px 0 0;
+  padding: 10px 12px;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.data-feedback.error {
+  color: #a34f3b;
+  background: #f9e8e3;
+}
+
+.data-feedback.success {
+  color: #52715a;
+  background: #edf5ed;
+}
+
+.backup-privacy {
+  margin: 16px 0 0;
+  color: #9b9891;
+  font-size: 9px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .dialog-mark {
   display: grid;
   width: 38px;
@@ -1170,6 +1389,23 @@ select:focus-visible {
 }
 
 @media (max-width: 620px) {
+  .data-dialog {
+    padding: 22px 18px;
+  }
+
+  .data-action-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .data-action-card > button {
+    width: 100%;
+  }
+
+  .import-preview dl {
+    grid-template-columns: 1fr;
+  }
+
   .editor-location b,
   .editor-location span:nth-child(3) {
     display: none;
