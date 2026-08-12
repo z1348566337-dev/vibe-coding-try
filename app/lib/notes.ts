@@ -6,6 +6,12 @@ export type MindNode = {
   children: MindNode[];
 };
 
+export type NoteImage = {
+  id: string;
+  caption: string;
+  createdAt: number;
+};
+
 export type Note = {
   id: string;
   title: string;
@@ -14,6 +20,7 @@ export type Note = {
   rating: number;
   tags: string[];
   content: string;
+  images?: NoteImage[];
   mindMap: MindNode;
   createdAt: number;
   updatedAt: number;
@@ -96,6 +103,7 @@ export function createNote(type: NoteType, now = Date.now()): Note {
     rating: 0,
     tags: [],
     content: "",
+    images: [],
     mindMap: {
       id: `${noteId}-root`,
       text: "中心主题",

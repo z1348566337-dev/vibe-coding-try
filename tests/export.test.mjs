@@ -54,3 +54,18 @@ test("PDF 打印页面会转义笔记内容并使用中文阅读版式", () => {
   assert.match(html, /第一行\n第二行 &lt;b&gt;不是标签&lt;\/b&gt;/);
   assert.match(html, /@page \{ size: A4/);
 });
+
+test("PDF 打印页面会按说明嵌入笔记图片，并过滤非法图片地址", () => {
+  const note = { ...DEFAULT_NOTES[0], images: [{ id: "image-1", caption: "重点页", createdAt: 1 }] };
+  const html = buildNotePrintHtml(note, [
+    { dataUrl: "data:image/jpeg;base64,AA==", caption: "<重点页>" },
+    { dataUrl: "javascript:alert(1)", caption: "危险地址" },
+  ]);
+
+  assert.match(html, /<h2>图片与扫描<\/h2>/);
+  assert.match(html, /data:image\/jpeg;base64,AA==/);
+  assert.match(html, /&lt;重点页&gt;/);
+  assert.doesNotMatch(html, /javascript:alert/);
+  assert.match(noteToMarkdown(note), /附件图片：1 张/);
+  assert.match(noteToPlainText(note), /附件图片：1 张/);
+});

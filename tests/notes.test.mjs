@@ -18,6 +18,7 @@ test("新建笔记具备默认思维导图和类型", () => {
   assert.equal(note.createdAt, now);
   assert.equal(note.mindMap.children.length, 3);
   assert.equal(note.mindMap.children[0].text, "核心观点");
+  assert.deepEqual(note.images, []);
 });
 
 test("快速记录会创建可立即输入正文的空白笔记", () => {

@@ -1,14 +1,16 @@
 import type { MindNode, Note } from "./notes";
+import type { StoredImage } from "./image-store";
 
 export const BACKUP_KIND = "jason-notes-backup";
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 export type NotesBackup = {
   kind: typeof BACKUP_KIND;
   app: "杰森笔记";
-  version: typeof BACKUP_VERSION;
+  version: 1 | typeof BACKUP_VERSION;
   exportedAt: string;
   notes: Note[];
+  images: StoredImage[];
 };
 
 export type MergeStats = {
@@ -45,6 +47,15 @@ function isNote(value: unknown): value is Note {
     Array.isArray(value.tags) &&
     value.tags.every((tag) => typeof tag === "string") &&
     typeof value.content === "string" &&
+    (value.images === undefined ||
+      (Array.isArray(value.images) &&
+        value.images.every(
+          (image) =>
+            isRecord(image) &&
+            typeof image.id === "string" &&
+            typeof image.caption === "string" &&
+            typeof image.createdAt === "number",
+        ))) &&
     isMindNode(value.mindMap) &&
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt) &&
@@ -53,18 +64,33 @@ function isNote(value: unknown): value is Note {
   );
 }
 
-export function createBackup(notes: Note[], exportedAt = Date.now()): NotesBackup {
+function isStoredImage(value: unknown): value is StoredImage {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.noteId === "string" &&
+    typeof value.dataUrl === "string" &&
+    value.dataUrl.startsWith("data:image/") &&
+    typeof value.mimeType === "string" &&
+    value.mimeType.startsWith("image/") &&
+    typeof value.createdAt === "number" &&
+    Number.isFinite(value.createdAt)
+  );
+}
+
+export function createBackup(notes: Note[], exportedAt = Date.now(), images: StoredImage[] = []): NotesBackup {
   return {
     kind: BACKUP_KIND,
     app: "杰森笔记",
     version: BACKUP_VERSION,
     exportedAt: new Date(exportedAt).toISOString(),
     notes,
+    images,
   };
 }
 
-export function serializeBackup(notes: Note[], exportedAt = Date.now()) {
-  return JSON.stringify(createBackup(notes, exportedAt), null, 2);
+export function serializeBackup(notes: Note[], exportedAt = Date.now(), images: StoredImage[] = []) {
+  return JSON.stringify(createBackup(notes, exportedAt, images), null, 2);
 }
 
 export function parseBackup(text: string): NotesBackup {
@@ -78,14 +104,16 @@ export function parseBackup(text: string): NotesBackup {
   if (!isRecord(value) || value.kind !== BACKUP_KIND || value.app !== "杰森笔记") {
     throw new Error("这不是杰森笔记生成的备份文件。");
   }
-  if (value.version !== BACKUP_VERSION) {
+  if (value.version !== 1 && value.version !== BACKUP_VERSION) {
     throw new Error("该备份版本暂不支持，请使用最新版杰森笔记恢复。");
   }
   if (
     typeof value.exportedAt !== "string" ||
     Number.isNaN(Date.parse(value.exportedAt)) ||
     !Array.isArray(value.notes) ||
-    !value.notes.every(isNote)
+    !value.notes.every(isNote) ||
+    (value.version === BACKUP_VERSION &&
+      (!Array.isArray(value.images) || !value.images.every(isStoredImage)))
   ) {
     throw new Error("备份文件内容不完整或已损坏。");
   }
@@ -99,9 +127,10 @@ export function parseBackup(text: string): NotesBackup {
   return {
     kind: BACKUP_KIND,
     app: "杰森笔记",
-    version: BACKUP_VERSION,
+    version: value.version,
     exportedAt: value.exportedAt,
     notes: [...latestById.values()],
+    images: value.version === 1 ? [] : value.images,
   };
 }
 

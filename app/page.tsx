@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- 图片来自本机 IndexedDB 的 data URL，无法使用远程图片优化器。 */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,6 +20,20 @@ import {
   renderMindMapCanvas,
 } from "./lib/export";
 import {
+  deleteImagesForNote,
+  deleteStoredImage,
+  getAllStoredImages,
+  replaceStoredImagesForNotes,
+  saveStoredImage,
+  type StoredImage,
+} from "./lib/image-store";
+import {
+  DEFAULT_IMAGE_TRANSFORM,
+  processImageDataUrl,
+  processImageFile,
+  type ImageTransform,
+} from "./lib/image-processing";
+import {
   DEFAULT_NOTES,
   addMindChild,
   createNote,
@@ -29,16 +44,29 @@ import {
   updateMindNode,
   type MindNode,
   type Note,
+  type NoteImage,
   type NoteType,
 } from "./lib/notes";
 
 const STORAGE_KEY = "inspiration-notes-v1";
-const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
+const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
+
+const createImageId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `image-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const createImageMetadata = () => ({ id: createImageId(), createdAt: Date.now() });
 
 type ImportPreview = {
   fileName: string;
   backup: NotesBackup;
   result: ReturnType<typeof mergeNotes>;
+};
+
+type EditingImage = {
+  image: NoteImage;
+  dataUrl: string;
 };
 
 function MindMapBranch({
@@ -114,8 +142,16 @@ export default function Home() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportMessage, setExportMessage] = useState("");
   const [exportError, setExportError] = useState("");
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [imageMessage, setImageMessage] = useState("");
+  const [imageError, setImageError] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
+  const [editingImage, setEditingImage] = useState<EditingImage | null>(null);
+  const [imageTransform, setImageTransform] = useState<ImageTransform>(DEFAULT_IMAGE_TRANSFORM);
   const writingAreaRef = useRef<HTMLTextAreaElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
@@ -158,6 +194,12 @@ export default function Home() {
     }, 220);
     return () => window.clearTimeout(timer);
   }, [notes, loaded]);
+
+  useEffect(() => {
+    getAllStoredImages()
+      .then((images) => setImageUrls(Object.fromEntries(images.map((image) => [image.id, image.dataUrl]))))
+      .catch(() => setImageError("本地图片库暂时无法读取，请重新打开应用。"));
+  }, []);
 
   const visibleNotes = useMemo(
     () =>
@@ -220,7 +262,16 @@ export default function Home() {
     setDataError("");
     setDataMessage("");
     const fileName = createBackupFilename();
-    const file = new File([serializeBackup(notes)], fileName, { type: "application/json" });
+    let storedImages: StoredImage[] = [];
+    try {
+      storedImages = await getAllStoredImages();
+      const referencedIds = new Set(notes.flatMap((note) => (note.images ?? []).map((image) => image.id)));
+      storedImages = storedImages.filter((image) => referencedIds.has(image.id));
+    } catch {
+      setDataError("读取本地图片失败，暂时无法生成完整备份。");
+      return;
+    }
+    const file = new File([serializeBackup(notes, Date.now(), storedImages)], fileName, { type: "application/json" });
 
     try {
       if (navigator.canShare?.({ files: [file] })) {
@@ -250,7 +301,7 @@ export default function Home() {
     setImportPreview(null);
 
     try {
-      if (file.size > MAX_BACKUP_BYTES) throw new Error("备份文件超过 20 MB，无法导入。");
+      if (file.size > MAX_BACKUP_BYTES) throw new Error("备份文件超过 100 MB，无法导入。");
       const backup = parseBackup(await file.text());
       setImportPreview({ fileName: file.name, backup, result: mergeNotes(notes, backup.notes) });
     } catch (error) {
@@ -260,10 +311,33 @@ export default function Home() {
     }
   };
 
-  const applyImport = () => {
+  const applyImport = async () => {
     if (!importPreview) return;
     const mergedNotes = importPreview.result.notes;
-    setNotes(mergedNotes);
+    const acceptedNoteIds = new Set(
+      importPreview.backup.notes
+        .filter((incoming) => {
+          const existing = notes.find((note) => note.id === incoming.id);
+          return !existing || incoming.updatedAt > existing.updatedAt;
+        })
+        .map((note) => note.id),
+    );
+    const referencedImageIds = new Set(
+      mergedNotes.flatMap((note) => (note.images ?? []).map((image) => image.id)),
+    );
+    const acceptedImages = importPreview.backup.images.filter(
+      (image) => acceptedNoteIds.has(image.noteId) && referencedImageIds.has(image.id),
+    );
+
+    try {
+      await replaceStoredImagesForNotes([...acceptedNoteIds], acceptedImages);
+      const storedImages = await getAllStoredImages();
+      setImageUrls(Object.fromEntries(storedImages.map((image) => [image.id, image.dataUrl])));
+      setNotes(mergedNotes);
+    } catch {
+      setDataError("恢复图片时发生错误，笔记尚未合并，请重试。");
+      return;
+    }
     setSelectedId((id) =>
       mergedNotes.some((note) => note.id === id)
         ? id
@@ -344,7 +418,10 @@ export default function Home() {
     setExportMessage("");
     setExportError("");
     try {
-      openPrintPreview(buildNotePrintHtml(current));
+      const images = (current.images ?? [])
+        .map((image) => ({ dataUrl: imageUrls[image.id], caption: image.caption }))
+        .filter((image) => Boolean(image.dataUrl));
+      openPrintPreview(buildNotePrintHtml(current, images));
       setExportMessage("已打开系统打印预览，可从预览中保存或分享 PDF。");
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "无法打开 PDF 打印预览。");
@@ -371,6 +448,112 @@ export default function Home() {
     setNotes(remaining);
     setSelectedId(remaining[0]?.id ?? "");
     setPendingDelete(false);
+    void deleteImagesForNote(current.id);
+    setImageUrls((urls) => {
+      const next = { ...urls };
+      (current.images ?? []).forEach((image) => delete next[image.id]);
+      return next;
+    });
+  };
+
+  const handleImageFiles = async (files: FileList | null) => {
+    if (!current || !files?.length) return;
+    const remainingSlots = 20 - (current.images?.length ?? 0);
+    if (remainingSlots <= 0) {
+      setImageError("每篇笔记最多插入 20 张图片。");
+      return;
+    }
+    const selected = [...files].slice(0, remainingSlots);
+    setImageBusy(true);
+    setImageError("");
+    setImageMessage("");
+    try {
+      const additions: NoteImage[] = [];
+      const stored: StoredImage[] = [];
+      for (const file of selected) {
+        const processed = await processImageFile(file);
+        const { id: imageId, createdAt } = createImageMetadata();
+        additions.push({ id: imageId, caption: "", createdAt });
+        stored.push({ id: imageId, noteId: current.id, dataUrl: processed.dataUrl, mimeType: processed.mimeType, createdAt });
+      }
+      await Promise.all(stored.map(saveStoredImage));
+      updateCurrent({ images: [...(current.images ?? []), ...additions] });
+      setImageUrls((urls) => ({ ...urls, ...Object.fromEntries(stored.map((image) => [image.id, image.dataUrl])) }));
+      setImageMessage(`已添加 ${additions.length} 张图片。`);
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "图片处理失败，请换一张重试。");
+    } finally {
+      setImageBusy(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+    }
+  };
+
+  const updateImageCaption = (imageId: string, caption: string) => {
+    if (!current) return;
+    updateCurrent({
+      images: (current.images ?? []).map((image) => (image.id === imageId ? { ...image, caption } : image)),
+    });
+  };
+
+  const moveImage = (imageId: string, direction: -1 | 1) => {
+    if (!current) return;
+    const images = [...(current.images ?? [])];
+    const index = images.findIndex((image) => image.id === imageId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= images.length) return;
+    [images[index], images[target]] = [images[target], images[index]];
+    updateCurrent({ images });
+  };
+
+  const removeImage = async (imageId: string) => {
+    if (!current) return;
+    if (!window.confirm("删除这张图片？此操作无法撤销。")) return;
+    try {
+      await deleteStoredImage(imageId);
+      updateCurrent({ images: (current.images ?? []).filter((image) => image.id !== imageId) });
+      setImageUrls((urls) => {
+        const next = { ...urls };
+        delete next[imageId];
+        return next;
+      });
+      setImageMessage("图片已删除。");
+      setImageError("");
+    } catch {
+      setImageError("图片删除失败，请重试。");
+    }
+  };
+
+  const startEditingImage = (image: NoteImage) => {
+    const dataUrl = imageUrls[image.id];
+    if (!dataUrl) return;
+    setEditingImage({ image, dataUrl });
+    setImageTransform(DEFAULT_IMAGE_TRANSFORM);
+    setImageError("");
+  };
+
+  const applyImageEdit = async () => {
+    if (!current || !editingImage) return;
+    setImageBusy(true);
+    try {
+      const processed = await processImageDataUrl(editingImage.dataUrl, imageTransform);
+      const stored: StoredImage = {
+        id: editingImage.image.id,
+        noteId: current.id,
+        dataUrl: processed.dataUrl,
+        mimeType: processed.mimeType,
+        createdAt: editingImage.image.createdAt,
+      };
+      await saveStoredImage(stored);
+      setImageUrls((urls) => ({ ...urls, [stored.id]: stored.dataUrl }));
+      setEditingImage(null);
+      updateCurrent({ images: [...(current.images ?? [])] });
+      setImageMessage("图片处理已保存。");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "无法保存图片处理结果。");
+    } finally {
+      setImageBusy(false);
+    }
   };
 
   const addTag = () => {
@@ -628,6 +811,96 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                <section className="image-section" aria-labelledby="image-section-title">
+                  <div className="image-section-heading">
+                    <div>
+                      <span>图像资料</span>
+                      <h2 id="image-section-title">图片与扫描</h2>
+                      <p>保存书页、视频画面或手写内容；图片只存于当前设备。</p>
+                    </div>
+                    <strong>{current.images?.length ?? 0}/20</strong>
+                  </div>
+
+                  <div className="image-actions">
+                    <button
+                      type="button"
+                      onClick={() => galleryInputRef.current?.click()}
+                      disabled={imageBusy || (current.images?.length ?? 0) >= 20}
+                    >
+                      <span aria-hidden="true">▧</span>
+                      从相册选择
+                    </button>
+                    <button
+                      type="button"
+                      className="scan-button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={imageBusy || (current.images?.length ?? 0) >= 20}
+                    >
+                      <span aria-hidden="true">⌁</span>
+                      拍照扫描
+                    </button>
+                    <input
+                      ref={galleryInputRef}
+                      className="image-file-input"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
+                    />
+                    <input
+                      ref={cameraInputRef}
+                      className="image-file-input"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
+                    />
+                    {imageBusy && <span className="image-busy" role="status">正在处理图片…</span>}
+                  </div>
+
+                  {(current.images?.length ?? 0) > 0 ? (
+                    <div className="image-gallery">
+                      {(current.images ?? []).map((image, index, images) => (
+                        <article className="image-card" key={image.id}>
+                          <button
+                            type="button"
+                            className="image-preview-button"
+                            onClick={() => startEditingImage(image)}
+                            aria-label={`预览并处理第 ${index + 1} 张图片`}
+                          >
+                            {imageUrls[image.id] ? (
+                              <img src={imageUrls[image.id]} alt={image.caption || `笔记图片 ${index + 1}`} />
+                            ) : (
+                              <span>图片加载中…</span>
+                            )}
+                          </button>
+                          <input
+                            value={image.caption}
+                            onChange={(event) => updateImageCaption(image.id, event.target.value)}
+                            placeholder="添加图片说明（可选）"
+                            aria-label={`第 ${index + 1} 张图片说明`}
+                          />
+                          <div className="image-card-actions">
+                            <button type="button" disabled={index === 0} onClick={() => moveImage(image.id, -1)} aria-label="向前移动">←</button>
+                            <button type="button" disabled={index === images.length - 1} onClick={() => moveImage(image.id, 1)} aria-label="向后移动">→</button>
+                            <button type="button" onClick={() => startEditingImage(image)}>处理</button>
+                            <button type="button" className="image-remove" onClick={() => void removeImage(image.id)}>删除</button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <button type="button" className="image-empty" onClick={() => galleryInputRef.current?.click()}>
+                      <span aria-hidden="true">＋</span>
+                      <strong>添加第一张图片</strong>
+                      <small>可从相册选择，也可用 iPhone 相机拍摄书页</small>
+                    </button>
+                  )}
+
+                  {imageError && <p className="image-feedback error" role="alert">{imageError}</p>}
+                  {imageMessage && <p className="image-feedback success" role="status">{imageMessage}</p>}
+                </section>
               </div>
             </div>
           </>
@@ -814,6 +1087,86 @@ export default function Home() {
             {exportError && <p className="data-feedback error" role="alert">{exportError}</p>}
             {exportMessage && <p className="data-feedback success" role="status">{exportMessage}</p>}
             <p className="backup-privacy">文件仅在当前设备生成，不会上传笔记内容。</p>
+          </section>
+        </div>
+      )}
+
+      {editingImage && (
+        <div className="dialog-backdrop" role="presentation" onClick={() => setEditingImage(null)}>
+          <section
+            className="image-editor-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="image-editor-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>基础扫描处理</span>
+                <h2 id="image-editor-title">预览与调整</h2>
+              </div>
+              <button type="button" onClick={() => setEditingImage(null)} aria-label="关闭图片处理">×</button>
+            </header>
+            <div className="image-editor-preview">
+              <img
+                src={editingImage.dataUrl}
+                alt={editingImage.image.caption || "待处理图片"}
+                style={{
+                  transform: `rotate(${imageTransform.rotation}deg)`,
+                  filter: imageTransform.enhance ? "contrast(1.24) brightness(1.05)" : "none",
+                }}
+              />
+            </div>
+            <div className="image-editor-tools">
+              <div className="image-tool-row">
+                <button
+                  type="button"
+                  onClick={() => setImageTransform((value) => ({ ...value, rotation: ((value.rotation + 270) % 360) as ImageTransform["rotation"] }))}
+                >
+                  ↶ 左转
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageTransform((value) => ({ ...value, rotation: ((value.rotation + 90) % 360) as ImageTransform["rotation"] }))}
+                >
+                  ↷ 右转
+                </button>
+                <button
+                  type="button"
+                  className={imageTransform.enhance ? "active" : ""}
+                  onClick={() => setImageTransform((value) => ({ ...value, enhance: !value.enhance }))}
+                >
+                  文档增强
+                </button>
+              </div>
+              <fieldset>
+                <legend>裁剪边缘（百分比）</legend>
+                {([
+                  ["cropTop", "上"],
+                  ["cropRight", "右"],
+                  ["cropBottom", "下"],
+                  ["cropLeft", "左"],
+                ] as const).map(([key, label]) => (
+                  <label key={key}>
+                    <span>{label} {imageTransform[key]}%</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="35"
+                      value={imageTransform[key]}
+                      onChange={(event) => setImageTransform((value) => ({ ...value, [key]: Number(event.target.value) }))}
+                    />
+                  </label>
+                ))}
+              </fieldset>
+              <p>裁剪会在保存时生效；可配合旋转和“文档增强”让书页更清晰。</p>
+            </div>
+            <footer>
+              <button type="button" className="dialog-cancel" onClick={() => setEditingImage(null)}>取消</button>
+              <button type="button" className="dialog-confirm" onClick={() => void applyImageEdit()} disabled={imageBusy}>
+                {imageBusy ? "处理中…" : "保存处理结果"}
+              </button>
+            </footer>
           </section>
         </div>
       )}

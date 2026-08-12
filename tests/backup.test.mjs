@@ -17,7 +17,25 @@ test("导出文件包含应用标识、版本和全部笔记", () => {
   assert.equal(backup.kind, BACKUP_KIND);
   assert.equal(backup.version, BACKUP_VERSION);
   assert.equal(backup.notes.length, DEFAULT_NOTES.length);
+  assert.deepEqual(backup.images, []);
   assert.equal(createBackupFilename(exportedAt), "杰森笔记备份-2026-08-06.json");
+});
+
+test("新版备份会包含图片，旧版无图片备份仍可恢复", () => {
+  const image = {
+    id: "image-1",
+    noteId: DEFAULT_NOTES[0].id,
+    dataUrl: "data:image/jpeg;base64,AA==",
+    mimeType: "image/jpeg",
+    createdAt: 123,
+  };
+  const parsed = parseBackup(serializeBackup(DEFAULT_NOTES, 456, [image]));
+  assert.deepEqual(parsed.images, [image]);
+
+  const oldBackup = JSON.parse(serializeBackup(DEFAULT_NOTES, 456));
+  oldBackup.version = 1;
+  delete oldBackup.images;
+  assert.deepEqual(parseBackup(JSON.stringify(oldBackup)).images, []);
 });
 
 test("有效备份可以解析，并自动保留重复笔记中的较新版本", () => {
