@@ -56,6 +56,16 @@ function isNote(value: unknown): value is Note {
             typeof image.caption === "string" &&
             typeof image.createdAt === "number",
         ))) &&
+    (value.contentBlocks === undefined ||
+      (Array.isArray(value.contentBlocks) &&
+        value.contentBlocks.length > 0 &&
+        value.contentBlocks.every(
+          (block) =>
+            isRecord(block) &&
+            typeof block.id === "string" &&
+            ((block.type === "text" && typeof block.text === "string") ||
+              (block.type === "image" && typeof block.imageId === "string")),
+        ))) &&
     isMindNode(value.mindMap) &&
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt) &&

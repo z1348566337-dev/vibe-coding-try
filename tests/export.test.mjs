@@ -46,6 +46,7 @@ test("PDF 打印页面会转义笔记内容并使用中文阅读版式", () => {
     ...DEFAULT_NOTES[0],
     title: "<script>危险标题</script>",
     content: "第一行\n第二行 <b>不是标签</b>",
+    contentBlocks: [{ id: "text-1", type: "text", text: "第一行\n第二行 <b>不是标签</b>" }],
   };
   const html = buildNotePrintHtml(note);
 
@@ -55,17 +56,26 @@ test("PDF 打印页面会转义笔记内容并使用中文阅读版式", () => {
   assert.match(html, /@page \{ size: A4/);
 });
 
-test("PDF 打印页面会按说明嵌入笔记图片，并过滤非法图片地址", () => {
-  const note = { ...DEFAULT_NOTES[0], images: [{ id: "image-1", caption: "重点页", createdAt: 1 }] };
+test("PDF 打印页面会按正文顺序嵌入图片，并过滤非法图片地址", () => {
+  const note = {
+    ...DEFAULT_NOTES[0],
+    images: [{ id: "image-1", caption: "重点页", createdAt: 1 }],
+    contentBlocks: [
+      { id: "text-before", type: "text", text: "图片前面的文字" },
+      { id: "image-block", type: "image", imageId: "image-1" },
+      { id: "text-after", type: "text", text: "图片后面的文字" },
+    ],
+  };
   const html = buildNotePrintHtml(note, [
-    { dataUrl: "data:image/jpeg;base64,AA==", caption: "<重点页>" },
-    { dataUrl: "javascript:alert(1)", caption: "危险地址" },
+    { id: "image-1", dataUrl: "data:image/jpeg;base64,AA==", caption: "<重点页>" },
+    { id: "image-2", dataUrl: "javascript:alert(1)", caption: "危险地址" },
   ]);
 
-  assert.match(html, /<h2>图片与扫描<\/h2>/);
+  assert.equal(html.indexOf("图片前面的文字") < html.indexOf("data:image/jpeg"), true);
+  assert.equal(html.indexOf("data:image/jpeg") < html.indexOf("图片后面的文字"), true);
   assert.match(html, /data:image\/jpeg;base64,AA==/);
   assert.match(html, /&lt;重点页&gt;/);
   assert.doesNotMatch(html, /javascript:alert/);
-  assert.match(noteToMarkdown(note), /附件图片：1 张/);
-  assert.match(noteToPlainText(note), /附件图片：1 张/);
+  assert.match(noteToMarkdown(note), /\[图片：重点页\]/);
+  assert.match(noteToPlainText(note), /\[图片：重点页\]/);
 });

@@ -12,6 +12,10 @@ export type NoteImage = {
   createdAt: number;
 };
 
+export type NoteContentBlock =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "image"; imageId: string };
+
 export type Note = {
   id: string;
   title: string;
@@ -21,6 +25,7 @@ export type Note = {
   tags: string[];
   content: string;
   images?: NoteImage[];
+  contentBlocks?: NoteContentBlock[];
   mindMap: MindNode;
   createdAt: number;
   updatedAt: number;
@@ -43,6 +48,13 @@ export const DEFAULT_NOTES: Note[] = [
     tags: ["心理学", "自我成长"],
     content:
       "课题分离，不是冷漠地不管别人，而是认清每个人需要对什么负责。\n\n我最有感触的是：如果总是把自己放在别人的目光里，就会慢慢失去选择生活的能力。真正的自由，是允许别人不理解，但仍愿意对自己的选择负责。\n\n行动：下次遇到分歧时，先问“这是谁的课题”，再决定自己要做什么。",
+    contentBlocks: [
+      {
+        id: "sample-book-text",
+        type: "text",
+        text: "课题分离，不是冷漠地不管别人，而是认清每个人需要对什么负责。\n\n我最有感触的是：如果总是把自己放在别人的目光里，就会慢慢失去选择生活的能力。真正的自由，是允许别人不理解，但仍愿意对自己的选择负责。\n\n行动：下次遇到分歧时，先问“这是谁的课题”，再决定自己要做什么。",
+      },
+    ],
     mindMap: {
       id: "m-root-1",
       text: "被讨厌的勇气",
@@ -79,6 +91,13 @@ export const DEFAULT_NOTES: Note[] = [
     tags: ["纪录片", "专注"],
     content:
       "真正打动我的不只是攀岩本身，而是为一个目标做几年细密准备的过程。\n\n当一件事足够困难，激情并不能代替训练。重复、记录、预演，都在把不可能慢慢变成可执行的路线。",
+    contentBlocks: [
+      {
+        id: "sample-video-text",
+        type: "text",
+        text: "真正打动我的不只是攀岩本身，而是为一个目标做几年细密准备的过程。\n\n当一件事足够困难，激情并不能代替训练。重复、记录、预演，都在把不可能慢慢变成可执行的路线。",
+      },
+    ],
     mindMap: {
       id: "m-root-2",
       text: "徒手攀岩",
@@ -104,6 +123,7 @@ export function createNote(type: NoteType, now = Date.now()): Note {
     tags: [],
     content: "",
     images: [],
+    contentBlocks: [{ id: `${noteId}-text`, type: "text", text: "" }],
     mindMap: {
       id: `${noteId}-root`,
       text: "中心主题",
@@ -118,6 +138,27 @@ export function createNote(type: NoteType, now = Date.now()): Note {
   };
 }
 
+export function migrateNoteContent(note: Note): Note {
+  if (Array.isArray(note.contentBlocks) && note.contentBlocks.length > 0) return note;
+  const images = note.images ?? [];
+  const contentBlocks: NoteContentBlock[] = [
+    { id: `${note.id}-legacy-text`, type: "text", text: note.content },
+    ...images.map((image) => ({ id: `${image.id}-block`, type: "image" as const, imageId: image.id })),
+  ];
+  if (images.length) {
+    contentBlocks.push({ id: `${note.id}-legacy-tail`, type: "text", text: "" });
+  }
+  return { ...note, images, contentBlocks };
+}
+
+export function contentBlocksToText(blocks: NoteContentBlock[]) {
+  return blocks
+    .filter((block): block is Extract<NoteContentBlock, { type: "text" }> => block.type === "text")
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function createQuickNote(now = Date.now()): Note {
   return createNote("book", now);
 }
@@ -126,7 +167,11 @@ export function matchesNote(note: Note, query: string, filter: "all" | NoteType)
   if (filter !== "all" && note.type !== filter) return false;
   const term = query.trim().toLocaleLowerCase("zh-CN");
   if (!term) return true;
-  return [note.title, note.source, note.content, ...note.tags]
+  const blockText = note.contentBlocks
+    ?.filter((block): block is Extract<NoteContentBlock, { type: "text" }> => block.type === "text")
+    .map((block) => block.text)
+    .join(" ");
+  return [note.title, note.source, blockText ?? note.content, ...note.tags]
     .join(" ")
     .toLocaleLowerCase("zh-CN")
     .includes(term);

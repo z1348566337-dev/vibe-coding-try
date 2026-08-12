@@ -38,12 +38,15 @@ import {
   addMindChild,
   createNote,
   createQuickNote,
+  contentBlocksToText,
   deleteMindNode,
   formatUpdatedAt,
   matchesNote,
+  migrateNoteContent,
   updateMindNode,
   type MindNode,
   type Note,
+  type NoteContentBlock,
   type NoteImage,
   type NoteType,
 } from "./lib/notes";
@@ -152,17 +155,19 @@ export default function Home() {
   const backupInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const pendingImageInsertRef = useRef<{ blockId: string; offset: number } | null>(null);
+  const textCaretRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
       try {
         const saved = window.localStorage.getItem(STORAGE_KEY);
         const parsed = saved ? (JSON.parse(saved) as Note[]) : DEFAULT_NOTES;
-        const validNotes = Array.isArray(parsed) ? parsed : DEFAULT_NOTES;
+        const validNotes = (Array.isArray(parsed) ? parsed : DEFAULT_NOTES).map(migrateNoteContent);
         setNotes(validNotes);
         setSelectedId(validNotes[0]?.id ?? "");
       } catch {
-        setNotes(DEFAULT_NOTES);
+        setNotes(DEFAULT_NOTES.map(migrateNoteContent));
         setSelectedId(DEFAULT_NOTES[0].id);
       }
       setLoaded(true);
@@ -245,6 +250,39 @@ export default function Home() {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => writingAreaRef.current?.focus());
     });
+  };
+
+  const updateContentBlocks = (contentBlocks: NoteContentBlock[]) => {
+    updateCurrent({ contentBlocks, content: contentBlocksToText(contentBlocks) });
+  };
+
+  const updateTextBlock = (blockId: string, text: string) => {
+    if (!current) return;
+    updateContentBlocks(
+      (current.contentBlocks ?? []).map((block) =>
+        block.id === blockId && block.type === "text" ? { ...block, text } : block,
+      ),
+    );
+  };
+
+  const addTextBlockAfter = (blockId: string) => {
+    if (!current) return;
+    const blocks = [...(current.contentBlocks ?? [])];
+    const index = blocks.findIndex((block) => block.id === blockId);
+    if (index < 0) return;
+    const textBlock: NoteContentBlock = { id: `${createImageId()}-text`, type: "text", text: "" };
+    blocks.splice(index + 1, 0, textBlock);
+    updateContentBlocks(blocks);
+  };
+
+  const prepareImageInsert = (blockId: string, source: "gallery" | "camera") => {
+    const block = current?.contentBlocks?.find((item) => item.id === blockId);
+    pendingImageInsertRef.current = {
+      blockId,
+      offset: block?.type === "text" ? (textCaretRef.current[blockId] ?? block.text.length) : 0,
+    };
+    if (source === "gallery") galleryInputRef.current?.click();
+    else cameraInputRef.current?.click();
   };
 
   const downloadFile = (file: File) => {
@@ -333,7 +371,7 @@ export default function Home() {
       await replaceStoredImagesForNotes([...acceptedNoteIds], acceptedImages);
       const storedImages = await getAllStoredImages();
       setImageUrls(Object.fromEntries(storedImages.map((image) => [image.id, image.dataUrl])));
-      setNotes(mergedNotes);
+      setNotes(mergedNotes.map(migrateNoteContent));
     } catch {
       setDataError("恢复图片时发生错误，笔记尚未合并，请重试。");
       return;
@@ -419,7 +457,7 @@ export default function Home() {
     setExportError("");
     try {
       const images = (current.images ?? [])
-        .map((image) => ({ dataUrl: imageUrls[image.id], caption: image.caption }))
+        .map((image) => ({ id: image.id, dataUrl: imageUrls[image.id], caption: image.caption }))
         .filter((image) => Boolean(image.dataUrl));
       openPrintPreview(buildNotePrintHtml(current, images));
       setExportMessage("已打开系统打印预览，可从预览中保存或分享 PDF。");
@@ -477,7 +515,41 @@ export default function Home() {
         stored.push({ id: imageId, noteId: current.id, dataUrl: processed.dataUrl, mimeType: processed.mimeType, createdAt });
       }
       await Promise.all(stored.map(saveStoredImage));
-      updateCurrent({ images: [...(current.images ?? []), ...additions] });
+      const blocks = [...(current.contentBlocks ?? [])];
+      const pendingInsert = pendingImageInsertRef.current;
+      const requestedIndex = blocks.findIndex((block) => block.id === pendingInsert?.blockId);
+      let insertionIndex = requestedIndex >= 0 ? requestedIndex + 1 : blocks.length;
+      const requestedBlock = blocks[requestedIndex];
+      if (pendingInsert && requestedBlock?.type === "text") {
+        const offset = Math.max(0, Math.min(requestedBlock.text.length, pendingInsert.offset));
+        const afterText = requestedBlock.text.slice(offset);
+        blocks[requestedIndex] = { ...requestedBlock, text: requestedBlock.text.slice(0, offset) };
+        blocks.splice(requestedIndex + 1, 0, {
+          id: `${createImageId()}-text`,
+          type: "text",
+          text: afterText,
+        });
+        insertionIndex = requestedIndex + 1;
+      }
+      const imageBlocks: NoteContentBlock[] = additions.map((image) => ({
+        id: `${image.id}-block`,
+        type: "image",
+        imageId: image.id,
+      }));
+      blocks.splice(insertionIndex, 0, ...imageBlocks);
+      const followingBlock = blocks[insertionIndex + imageBlocks.length];
+      if (!followingBlock || followingBlock.type !== "text") {
+        blocks.splice(insertionIndex + imageBlocks.length, 0, {
+          id: `${createImageId()}-text`,
+          type: "text",
+          text: "",
+        });
+      }
+      updateCurrent({
+        images: [...(current.images ?? []), ...additions],
+        contentBlocks: blocks,
+        content: contentBlocksToText(blocks),
+      });
       setImageUrls((urls) => ({ ...urls, ...Object.fromEntries(stored.map((image) => [image.id, image.dataUrl])) }));
       setImageMessage(`已添加 ${additions.length} 张图片。`);
     } catch (error) {
@@ -486,6 +558,7 @@ export default function Home() {
       setImageBusy(false);
       if (galleryInputRef.current) galleryInputRef.current.value = "";
       if (cameraInputRef.current) cameraInputRef.current.value = "";
+      pendingImageInsertRef.current = null;
     }
   };
 
@@ -496,14 +569,14 @@ export default function Home() {
     });
   };
 
-  const moveImage = (imageId: string, direction: -1 | 1) => {
+  const moveContentBlock = (blockId: string, direction: -1 | 1) => {
     if (!current) return;
-    const images = [...(current.images ?? [])];
-    const index = images.findIndex((image) => image.id === imageId);
+    const blocks = [...(current.contentBlocks ?? [])];
+    const index = blocks.findIndex((block) => block.id === blockId);
     const target = index + direction;
-    if (index < 0 || target < 0 || target >= images.length) return;
-    [images[index], images[target]] = [images[target], images[index]];
-    updateCurrent({ images });
+    if (index < 0 || target < 0 || target >= blocks.length) return;
+    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+    updateContentBlocks(blocks);
   };
 
   const removeImage = async (imageId: string) => {
@@ -511,7 +584,14 @@ export default function Home() {
     if (!window.confirm("删除这张图片？此操作无法撤销。")) return;
     try {
       await deleteStoredImage(imageId);
-      updateCurrent({ images: (current.images ?? []).filter((image) => image.id !== imageId) });
+      const blocks = (current.contentBlocks ?? []).filter(
+        (block) => block.type !== "image" || block.imageId !== imageId,
+      );
+      updateCurrent({
+        images: (current.images ?? []).filter((image) => image.id !== imageId),
+        contentBlocks: blocks,
+        content: contentBlocksToText(blocks),
+      });
       setImageUrls((urls) => {
         const next = { ...urls };
         delete next[imageId];
@@ -563,7 +643,7 @@ export default function Home() {
     setTagDraft("");
   };
 
-  const wordCount = current?.content.replace(/\s/g, "").length ?? 0;
+  const wordCount = current ? contentBlocksToText(current.contentBlocks ?? []).replace(/\s/g, "").length : 0;
 
   return (
     <main className="app-shell">
@@ -774,14 +854,116 @@ export default function Home() {
                 </div>
 
                 {view === "writing" ? (
-                  <div className="writing-area">
-                    <textarea
-                      ref={writingAreaRef}
-                      value={current.content}
-                      onChange={(event) => updateCurrent({ content: event.target.value })}
-                      placeholder={"从这里开始记录…\n\n• 哪个情节或观点最触动你？\n• 它让你想到了什么？\n• 你会如何将它应用在生活中？"}
-                      aria-label="笔记正文"
+                  <div className="writing-area block-editor">
+                    <div className="block-editor-tip">
+                      <span>图文笔记</span>
+                      <p>在文字段落下方插入图片，图片后可以继续书写。</p>
+                      <strong>{current.images?.length ?? 0}/20 张</strong>
+                    </div>
+                    <div className="content-block-list">
+                      {(current.contentBlocks ?? []).map((block, blockIndex, blocks) => {
+                        if (block.type === "text") {
+                          return (
+                            <section className="text-content-block" key={block.id}>
+                              <textarea
+                                ref={blockIndex === 0 ? writingAreaRef : undefined}
+                                value={block.text}
+                                onChange={(event) => updateTextBlock(block.id, event.target.value)}
+                                onSelect={(event) => {
+                                  textCaretRef.current[block.id] = event.currentTarget.selectionStart;
+                                }}
+                                placeholder={blockIndex === 0
+                                  ? "从这里开始记录…\n\n哪个情节或观点最触动你？它让你想到了什么？"
+                                  : "继续写下你的想法…"}
+                                aria-label={`正文第 ${blockIndex + 1} 段`}
+                              />
+                              <div className="insert-block-toolbar">
+                                <span>在这里插入</span>
+                                <button
+                                  type="button"
+                                  onClick={() => prepareImageInsert(block.id, "gallery")}
+                                  disabled={imageBusy || (current.images?.length ?? 0) >= 20}
+                                >
+                                  ▧ 图片
+                                </button>
+                                <button
+                                  type="button"
+                                  className="scan-button"
+                                  onClick={() => prepareImageInsert(block.id, "camera")}
+                                  disabled={imageBusy || (current.images?.length ?? 0) >= 20}
+                                >
+                                  ⌁ 拍照扫描
+                                </button>
+                                {blockIndex > 0 && block.text.trim() === "" && (
+                                  <button
+                                    type="button"
+                                    className="remove-text-block"
+                                    onClick={() => updateContentBlocks(blocks.filter((item) => item.id !== block.id))}
+                                  >
+                                    删除空段
+                                  </button>
+                                )}
+                              </div>
+                            </section>
+                          );
+                        }
+
+                        const image = (current.images ?? []).find((item) => item.id === block.imageId);
+                        if (!image) return null;
+                        return (
+                          <figure className="inline-image-block" key={block.id}>
+                            <button
+                              type="button"
+                              className="inline-image-preview"
+                              onClick={() => startEditingImage(image)}
+                              aria-label={`预览并处理图片 ${image.caption || blockIndex + 1}`}
+                            >
+                              {imageUrls[image.id] ? (
+                                <img src={imageUrls[image.id]} alt={image.caption || "笔记插图"} />
+                              ) : (
+                                <span>图片加载中…</span>
+                              )}
+                            </button>
+                            <input
+                              value={image.caption}
+                              onChange={(event) => updateImageCaption(image.id, event.target.value)}
+                              placeholder="添加图片说明（可选）"
+                              aria-label="图片说明"
+                            />
+                            <figcaption>
+                              <div>
+                                <button type="button" disabled={blockIndex === 0} onClick={() => moveContentBlock(block.id, -1)}>↑ 上移</button>
+                                <button type="button" disabled={blockIndex === blocks.length - 1} onClick={() => moveContentBlock(block.id, 1)}>↓ 下移</button>
+                                <button type="button" onClick={() => startEditingImage(image)}>处理图片</button>
+                                {blocks[blockIndex + 1]?.type !== "text" && (
+                                  <button type="button" onClick={() => addTextBlockAfter(block.id)}>＋ 下方写文字</button>
+                                )}
+                              </div>
+                              <button type="button" className="inline-image-delete" onClick={() => void removeImage(image.id)}>删除</button>
+                            </figcaption>
+                          </figure>
+                        );
+                      })}
+                    </div>
+                    <input
+                      ref={galleryInputRef}
+                      className="image-file-input"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
                     />
+                    <input
+                      ref={cameraInputRef}
+                      className="image-file-input"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
+                    />
+                    {imageBusy && <p className="image-feedback success" role="status">正在处理图片…</p>}
+                    {imageError && <p className="image-feedback error" role="alert">{imageError}</p>}
+                    {imageMessage && <p className="image-feedback success" role="status">{imageMessage}</p>}
                     <div className="writing-footer">
                       <span>{wordCount} 字</span>
                       <span>最后编辑 {formatUpdatedAt(current.updatedAt)}</span>
@@ -812,95 +994,6 @@ export default function Home() {
                   </div>
                 )}
 
-                <section className="image-section" aria-labelledby="image-section-title">
-                  <div className="image-section-heading">
-                    <div>
-                      <span>图像资料</span>
-                      <h2 id="image-section-title">图片与扫描</h2>
-                      <p>保存书页、视频画面或手写内容；图片只存于当前设备。</p>
-                    </div>
-                    <strong>{current.images?.length ?? 0}/20</strong>
-                  </div>
-
-                  <div className="image-actions">
-                    <button
-                      type="button"
-                      onClick={() => galleryInputRef.current?.click()}
-                      disabled={imageBusy || (current.images?.length ?? 0) >= 20}
-                    >
-                      <span aria-hidden="true">▧</span>
-                      从相册选择
-                    </button>
-                    <button
-                      type="button"
-                      className="scan-button"
-                      onClick={() => cameraInputRef.current?.click()}
-                      disabled={imageBusy || (current.images?.length ?? 0) >= 20}
-                    >
-                      <span aria-hidden="true">⌁</span>
-                      拍照扫描
-                    </button>
-                    <input
-                      ref={galleryInputRef}
-                      className="image-file-input"
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
-                    />
-                    <input
-                      ref={cameraInputRef}
-                      className="image-file-input"
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(event) => void handleImageFiles(event.currentTarget.files)}
-                    />
-                    {imageBusy && <span className="image-busy" role="status">正在处理图片…</span>}
-                  </div>
-
-                  {(current.images?.length ?? 0) > 0 ? (
-                    <div className="image-gallery">
-                      {(current.images ?? []).map((image, index, images) => (
-                        <article className="image-card" key={image.id}>
-                          <button
-                            type="button"
-                            className="image-preview-button"
-                            onClick={() => startEditingImage(image)}
-                            aria-label={`预览并处理第 ${index + 1} 张图片`}
-                          >
-                            {imageUrls[image.id] ? (
-                              <img src={imageUrls[image.id]} alt={image.caption || `笔记图片 ${index + 1}`} />
-                            ) : (
-                              <span>图片加载中…</span>
-                            )}
-                          </button>
-                          <input
-                            value={image.caption}
-                            onChange={(event) => updateImageCaption(image.id, event.target.value)}
-                            placeholder="添加图片说明（可选）"
-                            aria-label={`第 ${index + 1} 张图片说明`}
-                          />
-                          <div className="image-card-actions">
-                            <button type="button" disabled={index === 0} onClick={() => moveImage(image.id, -1)} aria-label="向前移动">←</button>
-                            <button type="button" disabled={index === images.length - 1} onClick={() => moveImage(image.id, 1)} aria-label="向后移动">→</button>
-                            <button type="button" onClick={() => startEditingImage(image)}>处理</button>
-                            <button type="button" className="image-remove" onClick={() => void removeImage(image.id)}>删除</button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <button type="button" className="image-empty" onClick={() => galleryInputRef.current?.click()}>
-                      <span aria-hidden="true">＋</span>
-                      <strong>添加第一张图片</strong>
-                      <small>可从相册选择，也可用 iPhone 相机拍摄书页</small>
-                    </button>
-                  )}
-
-                  {imageError && <p className="image-feedback error" role="alert">{imageError}</p>}
-                  {imageMessage && <p className="image-feedback success" role="status">{imageMessage}</p>}
-                </section>
               </div>
             </div>
           </>

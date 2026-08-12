@@ -8,6 +8,7 @@ import {
   deleteMindNode,
   formatUpdatedAt,
   matchesNote,
+  migrateNoteContent,
   updateMindNode,
 } from "../app/lib/notes.ts";
 
@@ -19,6 +20,20 @@ test("新建笔记具备默认思维导图和类型", () => {
   assert.equal(note.mindMap.children.length, 3);
   assert.equal(note.mindMap.children[0].text, "核心观点");
   assert.deepEqual(note.images, []);
+});
+
+test("旧笔记会自动迁移为文字与图片混排内容块", () => {
+  const legacy = {
+    ...DEFAULT_NOTES[0],
+    contentBlocks: undefined,
+    content: "第一段旧正文",
+    images: [{ id: "image-1", caption: "书页", createdAt: 1 }],
+  };
+  const migrated = migrateNoteContent(legacy);
+
+  assert.deepEqual(migrated.contentBlocks?.map((block) => block.type), ["text", "image", "text"]);
+  assert.equal(migrated.contentBlocks?.[0].type === "text" && migrated.contentBlocks[0].text, "第一段旧正文");
+  assert.equal(migrated.contentBlocks?.[1].type === "image" && migrated.contentBlocks[1].imageId, "image-1");
 });
 
 test("快速记录会创建可立即输入正文的空白笔记", () => {

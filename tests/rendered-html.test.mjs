@@ -28,8 +28,8 @@ test("首页可正常输出中文笔记界面", async () => {
   assert.match(html, />速记<\/button>/);
   assert.match(html, /数据管理/);
   assert.match(html, /导出\/分享/);
-  assert.match(html, /图片与扫描/);
-  assert.match(html, /从相册选择/);
+  assert.match(html, /图文笔记/);
+  assert.match(html, /▧ 图片/);
   assert.match(html, /拍照扫描/);
   assert.match(html, /内容仅保存在此浏览器/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

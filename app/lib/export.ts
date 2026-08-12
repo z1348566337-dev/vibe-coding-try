@@ -58,6 +58,14 @@ export function noteToMarkdown(note: Note) {
     `- 标签：${note.tags.length ? note.tags.map((tag) => `#${tag}`).join(" ") : "无"}`,
     `- 最后编辑：${formatDate(note.updatedAt)}`,
   ];
+  const imageById = new Map((note.images ?? []).map((image) => [image.id, image]));
+  const body = note.contentBlocks?.length
+    ? note.contentBlocks.flatMap((block) => {
+        if (block.type === "text") return block.text.trim() ? [block.text.trim(), ""] : [];
+        const image = imageById.get(block.imageId);
+        return image ? [`[图片${image.caption ? `：${image.caption}` : ""}]`, ""] : [];
+      })
+    : [note.content.trim() || "暂无正文内容。", ""];
   return [
     `# ${title}`,
     "",
@@ -65,10 +73,7 @@ export function noteToMarkdown(note: Note) {
     "",
     "## 笔记正文",
     "",
-    note.content.trim() || "暂无正文内容。",
-    ...(note.images?.length
-      ? ["", `> 附件图片：${note.images.length} 张（请使用 PDF 导出查看图片）`]
-      : []),
+    ...body,
     "",
     "## 思维导图",
     "",
@@ -82,6 +87,14 @@ export function noteToMarkdown(note: Note) {
 
 export function noteToPlainText(note: Note) {
   const title = note.title.trim() || "未命名笔记";
+  const imageById = new Map((note.images ?? []).map((image) => [image.id, image]));
+  const body = note.contentBlocks?.length
+    ? note.contentBlocks.flatMap((block) => {
+        if (block.type === "text") return block.text.trim() ? [block.text.trim(), ""] : [];
+        const image = imageById.get(block.imageId);
+        return image ? [`[图片${image.caption ? `：${image.caption}` : ""}]`, ""] : [];
+      })
+    : [note.content.trim() || "暂无正文内容。", ""];
   return [
     title,
     "=".repeat(Math.min(30, Math.max(8, title.length))),
@@ -92,8 +105,7 @@ export function noteToPlainText(note: Note) {
     `最后编辑：${formatDate(note.updatedAt)}`,
     "",
     "【笔记正文】",
-    note.content.trim() || "暂无正文内容。",
-    ...(note.images?.length ? [`附件图片：${note.images.length} 张（请使用 PDF 导出查看图片）`] : []),
+    ...body,
     "",
     "【思维导图】",
     ...mindMapToMarkdown(note.mindMap),
@@ -276,6 +288,11 @@ const printStyles = `
   .metadata div { font-size: 11px; line-height: 1.6; }
   .metadata b { color: #8c867c; font-weight: 500; }
   .content { min-height: 160px; font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .content-flow { display: grid; gap: 14px; }
+  .content-flow .text-block { font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .content-flow figure { break-inside: avoid; margin: 0; padding: 8px; border: 1px solid #e5e1d7; border-radius: 8px; }
+  .content-flow img { display: block; width: 100%; height: auto; max-height: 150mm; object-fit: contain; }
+  .content-flow figcaption { margin-top: 7px; color: #817c74; font-size: 10px; line-height: 1.5; text-align: center; }
   .note-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .note-images figure { break-inside: avoid; margin: 0; padding: 8px; border: 1px solid #e5e1d7; border-radius: 8px; }
   .note-images img { display: block; width: 100%; height: auto; max-height: 112mm; object-fit: contain; }
@@ -293,20 +310,28 @@ const printStyles = `
 
 export function buildNotePrintHtml(
   note: Note,
-  images: Array<{ dataUrl: string; caption: string }> = [],
+  images: Array<{ id: string; dataUrl: string; caption: string }> = [],
 ) {
   const title = note.title.trim() || "未命名笔记";
   const tags = note.tags.length ? note.tags.map((tag) => `#${tag}`).join("　") : "无";
-  const printableImages = images.filter((image) => /^data:image\/(?:jpeg|png|webp);base64,/i.test(image.dataUrl));
-  const imageSection = printableImages.length
-    ? `<h2>图片与扫描</h2><section class="note-images">${printableImages
-        .map(
-          (image, index) =>
-            `<figure><img src="${image.dataUrl}" alt="${escapeHtml(image.caption || `笔记图片 ${index + 1}`)}">${image.caption ? `<figcaption>${escapeHtml(image.caption)}</figcaption>` : ""}</figure>`,
-        )
-        .join("")}</section>`
-    : "";
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 杰森笔记</title><style>@page { size: A4; margin: 16mm; }${printStyles}</style></head><body><main><div class="brand">杰森笔记 · ${noteTypeLabel(note)}</div><h1>${escapeHtml(title)}</h1><section class="metadata"><div><b>${sourceLabel(note)}：</b>${escapeHtml(note.source.trim() || "未填写")}</div><div><b>评分：</b>${escapeHtml(ratingLabel(note.rating))}</div><div><b>标签：</b>${escapeHtml(tags)}</div><div><b>最后编辑：</b>${escapeHtml(formatDate(note.updatedAt))}</div></section><h2>笔记正文</h2><div class="content">${escapeHtml(note.content.trim() || "暂无正文内容。")}</div>${imageSection}<h2>思维导图</h2><ul class="mind-outline">${mindMapToHtml(note.mindMap, true)}</ul><footer>由杰森笔记导出 · ${escapeHtml(formatDate(Date.now()))}</footer></main></body></html>`;
+  const printableImages = new Map(
+    images
+      .filter((image) => /^data:image\/(?:jpeg|png|webp);base64,/i.test(image.dataUrl))
+      .map((image) => [image.id, image]),
+  );
+  const flow = note.contentBlocks?.length
+    ? note.contentBlocks
+        .map((block, index) => {
+          if (block.type === "text") {
+            return block.text.trim() ? `<div class="text-block">${escapeHtml(block.text)}</div>` : "";
+          }
+          const image = printableImages.get(block.imageId);
+          if (!image) return "";
+          return `<figure><img src="${image.dataUrl}" alt="${escapeHtml(image.caption || `笔记图片 ${index + 1}`)}">${image.caption ? `<figcaption>${escapeHtml(image.caption)}</figcaption>` : ""}</figure>`;
+        })
+        .join("")
+    : `<div class="text-block">${escapeHtml(note.content.trim() || "暂无正文内容。")}</div>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · 杰森笔记</title><style>@page { size: A4; margin: 16mm; }${printStyles}</style></head><body><main><div class="brand">杰森笔记 · ${noteTypeLabel(note)}</div><h1>${escapeHtml(title)}</h1><section class="metadata"><div><b>${sourceLabel(note)}：</b>${escapeHtml(note.source.trim() || "未填写")}</div><div><b>评分：</b>${escapeHtml(ratingLabel(note.rating))}</div><div><b>标签：</b>${escapeHtml(tags)}</div><div><b>最后编辑：</b>${escapeHtml(formatDate(note.updatedAt))}</div></section><h2>笔记正文</h2><section class="content-flow">${flow || '<div class="text-block">暂无正文内容。</div>'}</section><h2>思维导图</h2><ul class="mind-outline">${mindMapToHtml(note.mindMap, true)}</ul><footer>由杰森笔记导出 · ${escapeHtml(formatDate(Date.now()))}</footer></main></body></html>`;
 }
 
 export function buildMindMapPrintHtml(note: Note, imageDataUrl: string) {
