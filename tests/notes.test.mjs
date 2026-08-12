@@ -9,6 +9,7 @@ import {
   formatUpdatedAt,
   matchesNote,
   migrateNoteContent,
+  removeImageFromContentBlocks,
   updateMindNode,
 } from "../app/lib/notes.ts";
 
@@ -34,6 +35,32 @@ test("旧笔记会自动迁移为文字与图片混排内容块", () => {
   assert.deepEqual(migrated.contentBlocks?.map((block) => block.type), ["text", "image", "text"]);
   assert.equal(migrated.contentBlocks?.[0].type === "text" && migrated.contentBlocks[0].text, "第一段旧正文");
   assert.equal(migrated.contentBlocks?.[1].type === "image" && migrated.contentBlocks[1].imageId, "image-1");
+});
+
+test("删除夹在两段文字之间的图片后会无损合并原文字", () => {
+  const blocks = [
+    { id: "before", type: "text", text: "第一部分，" },
+    { id: "image-block", type: "image", imageId: "image-1" },
+    { id: "after", type: "text", text: "第二部分。" },
+  ];
+  const merged = removeImageFromContentBlocks(blocks, "image-1");
+
+  assert.deepEqual(merged, [{ id: "before", type: "text", text: "第一部分，第二部分。" }]);
+  assert.equal(blocks.length, 3);
+});
+
+test("连续图片只在最后一张被删除后重新合并文字", () => {
+  const blocks = [
+    { id: "before", type: "text", text: "前" },
+    { id: "image-a", type: "image", imageId: "image-a" },
+    { id: "image-b", type: "image", imageId: "image-b" },
+    { id: "after", type: "text", text: "后" },
+  ];
+  const afterFirstDelete = removeImageFromContentBlocks(blocks, "image-a");
+  assert.deepEqual(afterFirstDelete.map((block) => block.type), ["text", "image", "text"]);
+
+  const afterSecondDelete = removeImageFromContentBlocks(afterFirstDelete, "image-b");
+  assert.deepEqual(afterSecondDelete, [{ id: "before", type: "text", text: "前后" }]);
 });
 
 test("快速记录会创建可立即输入正文的空白笔记", () => {

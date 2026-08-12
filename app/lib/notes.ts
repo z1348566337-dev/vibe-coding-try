@@ -159,6 +159,25 @@ export function contentBlocksToText(blocks: NoteContentBlock[]) {
     .join("\n\n");
 }
 
+export function removeImageFromContentBlocks(blocks: NoteContentBlock[], imageId: string) {
+  const imageIndex = blocks.findIndex(
+    (block) => block.type === "image" && block.imageId === imageId,
+  );
+  if (imageIndex < 0) return blocks;
+
+  const next = [...blocks];
+  next.splice(imageIndex, 1);
+  const before = next[imageIndex - 1];
+  const after = next[imageIndex];
+  if (before?.type === "text" && after?.type === "text") {
+    next.splice(imageIndex - 1, 2, {
+      ...before,
+      text: before.text + after.text,
+    });
+  }
+  return next;
+}
+
 export function createQuickNote(now = Date.now()): Note {
   return createNote("book", now);
 }

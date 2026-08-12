@@ -43,6 +43,7 @@ import {
   formatUpdatedAt,
   matchesNote,
   migrateNoteContent,
+  removeImageFromContentBlocks,
   updateMindNode,
   type MindNode,
   type Note,
@@ -584,9 +585,7 @@ export default function Home() {
     if (!window.confirm("删除这张图片？此操作无法撤销。")) return;
     try {
       await deleteStoredImage(imageId);
-      const blocks = (current.contentBlocks ?? []).filter(
-        (block) => block.type !== "image" || block.imageId !== imageId,
-      );
+      const blocks = removeImageFromContentBlocks(current.contentBlocks ?? [], imageId);
       updateCurrent({
         images: (current.images ?? []).filter((image) => image.id !== imageId),
         contentBlocks: blocks,
