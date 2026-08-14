@@ -178,6 +178,40 @@ export function removeImageFromContentBlocks(blocks: NoteContentBlock[], imageId
   return next;
 }
 
+export function insertTextAfterImageBlock(
+  blocks: NoteContentBlock[],
+  imageId: string,
+  text: string,
+  textBlockId: string,
+) {
+  const normalizedText = text.trim();
+  if (!normalizedText) return blocks;
+
+  const imageIndex = blocks.findIndex(
+    (block) => block.type === "image" && block.imageId === imageId,
+  );
+  if (imageIndex < 0) return blocks;
+
+  const next = [...blocks];
+  const followingBlock = next[imageIndex + 1];
+  if (followingBlock?.type === "text") {
+    next[imageIndex + 1] = {
+      ...followingBlock,
+      text: followingBlock.text.trim()
+        ? `${normalizedText}\n\n${followingBlock.text}`
+        : normalizedText,
+    };
+    return next;
+  }
+
+  next.splice(imageIndex + 1, 0, {
+    id: textBlockId,
+    type: "text",
+    text: normalizedText,
+  });
+  return next;
+}
+
 export function createQuickNote(now = Date.now()): Note {
   return createNote("book", now);
 }

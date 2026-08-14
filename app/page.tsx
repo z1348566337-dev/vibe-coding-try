@@ -41,6 +41,7 @@ import {
   contentBlocksToText,
   deleteMindNode,
   formatUpdatedAt,
+  insertTextAfterImageBlock,
   matchesNote,
   migrateNoteContent,
   removeImageFromContentBlocks,
@@ -51,6 +52,7 @@ import {
   type NoteImage,
   type NoteType,
 } from "./lib/notes";
+import { recognizeImageText, type OcrProgress } from "./lib/ocr";
 
 const STORAGE_KEY = "inspiration-notes-v1";
 const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
@@ -152,12 +154,21 @@ export default function Home() {
   const [imageBusy, setImageBusy] = useState(false);
   const [editingImage, setEditingImage] = useState<EditingImage | null>(null);
   const [imageTransform, setImageTransform] = useState<ImageTransform>(DEFAULT_IMAGE_TRANSFORM);
+  const [ocrTarget, setOcrTarget] = useState<EditingImage | null>(null);
+  const [ocrText, setOcrText] = useState("");
+  const [ocrProgress, setOcrProgress] = useState<OcrProgress>({
+    status: "正在准备本机识别",
+    progress: 0,
+  });
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrError, setOcrError] = useState("");
   const writingAreaRef = useRef<HTMLTextAreaElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const pendingImageInsertRef = useRef<{ blockId: string; offset: number } | null>(null);
   const textCaretRef = useRef<Record<string, number>>({});
+  const ocrRequestIdRef = useRef(0);
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
@@ -635,6 +646,60 @@ export default function Home() {
     }
   };
 
+  const runOcr = async (target: EditingImage) => {
+    const requestId = ++ocrRequestIdRef.current;
+    setOcrBusy(true);
+    setOcrError("");
+    setOcrText("");
+    setOcrProgress({ status: "正在准备本机识别", progress: 0 });
+    try {
+      const text = await recognizeImageText(target.dataUrl, (progress) => {
+        if (ocrRequestIdRef.current === requestId) setOcrProgress(progress);
+      });
+      if (ocrRequestIdRef.current !== requestId) return;
+      if (!text) {
+        setOcrError("没有识别到清晰文字。可以先裁剪、旋转或开启“文档增强”后再试。");
+        return;
+      }
+      setOcrText(text);
+      setOcrProgress({ status: "识别完成，可以校对文字", progress: 1 });
+    } catch {
+      if (ocrRequestIdRef.current !== requestId) return;
+      setOcrError("文字识别失败。请检查网络后重试；首次使用需要下载中英文识别模型。");
+    } finally {
+      if (ocrRequestIdRef.current === requestId) setOcrBusy(false);
+    }
+  };
+
+  const startOcr = (image: NoteImage) => {
+    const dataUrl = imageUrls[image.id];
+    if (!dataUrl) return;
+    const target = { image, dataUrl };
+    setOcrTarget(target);
+    void runOcr(target);
+  };
+
+  const closeOcr = () => {
+    ocrRequestIdRef.current += 1;
+    setOcrTarget(null);
+    setOcrText("");
+    setOcrError("");
+    setOcrBusy(false);
+  };
+
+  const insertOcrText = () => {
+    if (!current || !ocrTarget || !ocrText.trim()) return;
+    const blocks = insertTextAfterImageBlock(
+      current.contentBlocks ?? [],
+      ocrTarget.image.id,
+      ocrText,
+      `${createImageId()}-text`,
+    );
+    updateContentBlocks(blocks);
+    setImageMessage("识别文字已插入图片下方。");
+    closeOcr();
+  };
+
   const addTag = () => {
     const tag = tagDraft.trim().replace(/^#/, "");
     if (!current || !tag || current.tags.includes(tag)) return;
@@ -934,6 +999,13 @@ export default function Home() {
                                 <button type="button" disabled={blockIndex === 0} onClick={() => moveContentBlock(block.id, -1)}>↑ 上移</button>
                                 <button type="button" disabled={blockIndex === blocks.length - 1} onClick={() => moveContentBlock(block.id, 1)}>↓ 下移</button>
                                 <button type="button" onClick={() => startEditingImage(image)}>处理图片</button>
+                                <button
+                                  type="button"
+                                  onClick={() => startOcr(image)}
+                                  disabled={!imageUrls[image.id]}
+                                >
+                                  识别文字
+                                </button>
                                 {blocks[blockIndex + 1]?.type !== "text" && (
                                   <button type="button" onClick={() => addTextBlockAfter(block.id)}>＋ 下方写文字</button>
                                 )}
@@ -1257,6 +1329,73 @@ export default function Home() {
               <button type="button" className="dialog-cancel" onClick={() => setEditingImage(null)}>取消</button>
               <button type="button" className="dialog-confirm" onClick={() => void applyImageEdit()} disabled={imageBusy}>
                 {imageBusy ? "处理中…" : "保存处理结果"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {ocrTarget && (
+        <div className="dialog-backdrop" role="presentation" onClick={closeOcr}>
+          <section
+            className="ocr-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ocr-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>本机中英文识别</span>
+                <h2 id="ocr-dialog-title">识别并校对文字</h2>
+              </div>
+              <button type="button" onClick={closeOcr} aria-label="关闭文字识别">×</button>
+            </header>
+
+            <div className="ocr-preview">
+              <img src={ocrTarget.dataUrl} alt={ocrTarget.image.caption || "待识别图片"} />
+            </div>
+
+            {ocrBusy ? (
+              <div className="ocr-running" role="status" aria-live="polite">
+                <div className="ocr-progress-heading">
+                  <strong>{ocrProgress.status}</strong>
+                  <span>{Math.round(ocrProgress.progress * 100)}%</span>
+                </div>
+                <div className="ocr-progress-track" aria-hidden="true">
+                  <span style={{ width: `${Math.max(4, ocrProgress.progress * 100)}%` }} />
+                </div>
+                <p>首次使用会下载中英文模型，可能需要稍等；以后会使用浏览器缓存。</p>
+              </div>
+            ) : (
+              <label className="ocr-result">
+                <span>识别结果（可直接修改）</span>
+                <textarea
+                  value={ocrText}
+                  onChange={(event) => setOcrText(event.target.value)}
+                  placeholder="识别出的文字会显示在这里…"
+                  autoFocus={Boolean(ocrText)}
+                />
+              </label>
+            )}
+
+            {ocrError && <p className="ocr-error" role="alert">{ocrError}</p>}
+            <p className="ocr-privacy">图片和识别过程均在当前设备中完成，不会上传到我们的服务器。</p>
+
+            <footer>
+              <button type="button" className="dialog-cancel" onClick={closeOcr}>取消</button>
+              {ocrError && (
+                <button type="button" className="ocr-retry" onClick={() => void runOcr(ocrTarget)}>
+                  重新识别
+                </button>
+              )}
+              <button
+                type="button"
+                className="dialog-confirm"
+                onClick={insertOcrText}
+                disabled={ocrBusy || !ocrText.trim()}
+              >
+                插入到图片下方
               </button>
             </footer>
           </section>

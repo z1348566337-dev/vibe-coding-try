@@ -7,6 +7,7 @@ import {
   createQuickNote,
   deleteMindNode,
   formatUpdatedAt,
+  insertTextAfterImageBlock,
   matchesNote,
   migrateNoteContent,
   removeImageFromContentBlocks,
@@ -61,6 +62,39 @@ test("连续图片只在最后一张被删除后重新合并文字", () => {
 
   const afterSecondDelete = removeImageFromContentBlocks(afterFirstDelete, "image-b");
   assert.deepEqual(afterSecondDelete, [{ id: "before", type: "text", text: "前后" }]);
+});
+
+test("识别文字会插入图片下方的空白文字块", () => {
+  const blocks = [
+    { id: "before", type: "text", text: "图片之前" },
+    { id: "image", type: "image", imageId: "image-1" },
+    { id: "after", type: "text", text: "" },
+  ];
+  const updated = insertTextAfterImageBlock(blocks, "image-1", "  识别出的文字  ", "new-text");
+
+  assert.deepEqual(updated, [
+    { id: "before", type: "text", text: "图片之前" },
+    { id: "image", type: "image", imageId: "image-1" },
+    { id: "after", type: "text", text: "识别出的文字" },
+  ]);
+});
+
+test("图片下方已有文字时会保留原文并把识别结果放在前面", () => {
+  const blocks = [
+    { id: "image", type: "image", imageId: "image-1" },
+    { id: "after", type: "text", text: "原来写下的感想" },
+  ];
+  const updated = insertTextAfterImageBlock(blocks, "image-1", "书页摘录", "new-text");
+
+  assert.equal(updated[1].type === "text" && updated[1].text, "书页摘录\n\n原来写下的感想");
+  assert.equal(blocks[1].type === "text" && blocks[1].text, "原来写下的感想");
+});
+
+test("图片后没有文字块时会创建新的文字块", () => {
+  const blocks = [{ id: "image", type: "image", imageId: "image-1" }];
+  const updated = insertTextAfterImageBlock(blocks, "image-1", "识别内容", "new-text");
+
+  assert.deepEqual(updated[1], { id: "new-text", type: "text", text: "识别内容" });
 });
 
 test("快速记录会创建可立即输入正文的空白笔记", () => {
