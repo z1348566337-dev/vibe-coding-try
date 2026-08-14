@@ -3,6 +3,8 @@ export type OcrProgress = {
   progress: number;
 };
 
+export type OcrLanguage = "chi_sim" | "eng";
+
 const OCR_STATUS_LABELS: Record<string, string> = {
   "loading tesseract core": "正在加载识别引擎",
   "initializing tesseract": "正在启动识别引擎",
@@ -28,19 +30,30 @@ export function normalizeOcrText(text: string) {
 export async function recognizeImageText(
   image: string,
   onProgress?: (progress: OcrProgress) => void,
+  language: OcrLanguage = "chi_sim",
 ) {
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker(["chi_sim", "eng"], undefined, {
+  onProgress?.({ status: "正在增强图片清晰度", progress: 0.04 });
+  const { prepareImageForOcr } = await import("./image-processing");
+  const preparedImage = await prepareImageForOcr(image);
+  const { createWorker, OEM, PSM } = await import("tesseract.js");
+  const worker = await createWorker(language, OEM.LSTM_ONLY, {
     logger: (message) => {
       onProgress?.({
         status: getOcrStatusLabel(message.status),
-        progress: Number.isFinite(message.progress) ? message.progress : 0,
+        progress: Number.isFinite(message.progress)
+          ? 0.08 + message.progress * 0.9
+          : 0.08,
       });
     },
   });
 
   try {
-    const result = await worker.recognize(image);
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.AUTO,
+      preserve_interword_spaces: "1",
+      user_defined_dpi: "300",
+    });
+    const result = await worker.recognize(preparedImage);
     return normalizeOcrText(result.data.text);
   } finally {
     await worker.terminate();

@@ -53,7 +53,11 @@ import {
   type NoteImage,
   type NoteType,
 } from "./lib/notes";
-import { recognizeImageText, type OcrProgress } from "./lib/ocr";
+import {
+  recognizeImageText,
+  type OcrLanguage,
+  type OcrProgress,
+} from "./lib/ocr";
 
 const STORAGE_KEY = "inspiration-notes-v1";
 const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
@@ -163,6 +167,7 @@ export default function Home() {
   });
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrError, setOcrError] = useState("");
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>("chi_sim");
   const writingAreaRef = useRef<HTMLTextAreaElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -649,16 +654,20 @@ export default function Home() {
     }
   };
 
-  const runOcr = async (target: EditingImage) => {
+  const runOcr = async (target: EditingImage, language: OcrLanguage = ocrLanguage) => {
     const requestId = ++ocrRequestIdRef.current;
     setOcrBusy(true);
     setOcrError("");
     setOcrText("");
     setOcrProgress({ status: "正在准备本机识别", progress: 0 });
     try {
-      const text = await recognizeImageText(target.dataUrl, (progress) => {
-        if (ocrRequestIdRef.current === requestId) setOcrProgress(progress);
-      });
+      const text = await recognizeImageText(
+        target.dataUrl,
+        (progress) => {
+          if (ocrRequestIdRef.current === requestId) setOcrProgress(progress);
+        },
+        language,
+      );
       if (ocrRequestIdRef.current !== requestId) return;
       if (!text) {
         setOcrError("没有识别到清晰文字。可以先裁剪、旋转或开启“文档增强”后再试。");
@@ -1359,6 +1368,19 @@ export default function Home() {
               <img src={ocrTarget.dataUrl} alt={ocrTarget.image.caption || "待识别图片"} />
             </div>
 
+            <label className="ocr-language-picker">
+              <span>识别语言</span>
+              <select
+                value={ocrLanguage}
+                onChange={(event) => setOcrLanguage(event.target.value as OcrLanguage)}
+                disabled={ocrBusy}
+              >
+                <option value="chi_sim">中文为主（推荐）</option>
+                <option value="eng">英文为主</option>
+              </select>
+              <small>中文模型也能识别常见英文；纯英文页面请选择“英文为主”。</small>
+            </label>
+
             {ocrBusy ? (
               <div className="ocr-running" role="status" aria-live="polite">
                 <div className="ocr-progress-heading">
@@ -1387,7 +1409,7 @@ export default function Home() {
 
             <footer>
               <button type="button" className="dialog-cancel" onClick={closeOcr}>取消</button>
-              {ocrError && (
+              {!ocrBusy && (
                 <button type="button" className="ocr-retry" onClick={() => void runOcr(ocrTarget)}>
                   重新识别
                 </button>

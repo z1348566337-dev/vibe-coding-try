@@ -1488,6 +1488,40 @@ select:focus-visible {
   object-fit: contain;
 }
 
+.ocr-language-picker {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 220px) 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #e4dfd6;
+  border-radius: 9px;
+  background: #faf8f3;
+}
+
+.ocr-language-picker > span {
+  color: #59677a;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.ocr-language-picker select {
+  height: 34px;
+  padding: 0 9px;
+  color: #465264;
+  border: 1px solid #d8d4cc;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 9px;
+}
+
+.ocr-language-picker small {
+  color: #90938f;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
 .ocr-running,
 .ocr-result {
   display: block;
@@ -2320,6 +2354,14 @@ select:focus-visible {
 
   .ocr-dialog {
     padding: 20px 16px;
+  }
+
+  .ocr-language-picker {
+    grid-template-columns: auto 1fr;
+  }
+
+  .ocr-language-picker small {
+    grid-column: 1 / -1;
   }
 
   .image-editor-preview {

@@ -1,5 +1,8 @@
-export const MAX_IMAGE_DIMENSION = 1600;
+export const MAX_IMAGE_DIMENSION = 2200;
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+export const MAX_OCR_IMAGE_DIMENSION = 2800;
+export const OCR_IMAGE_SCALE_LIMIT = 2;
+export const OCR_IMAGE_BORDER = 24;
 
 export type ImageTransform = {
   rotation: 0 | 90 | 180 | 270;
@@ -22,6 +25,18 @@ export const DEFAULT_IMAGE_TRANSFORM: ImageTransform = {
 export function calculateImageSize(width: number, height: number, maxDimension = MAX_IMAGE_DIMENSION) {
   const scale = Math.min(1, maxDimension / Math.max(width, height));
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+export function calculateOcrImageSize(
+  width: number,
+  height: number,
+  maxDimension = MAX_OCR_IMAGE_DIMENSION,
+) {
+  const scale = Math.min(OCR_IMAGE_SCALE_LIMIT, maxDimension / Math.max(width, height));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
 }
 
 export function calculateCropRect(
@@ -69,6 +84,48 @@ function applyEnhancement(context: CanvasRenderingContext2D, width: number, heig
       const contrasted = (normalized - 0.5) * 1.24 + 0.5;
       data[index + channel] = Math.max(0, Math.min(255, Math.round((contrasted * 1.05 + 0.025) * 255)));
     }
+  }
+  context.putImageData(imageData, 0, 0);
+}
+
+function findHistogramBoundary(histogram: Uint32Array, total: number, ratio: number) {
+  const target = total * ratio;
+  let count = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    count += histogram[value];
+    if (count >= target) return value;
+  }
+  return ratio < 0.5 ? 0 : 255;
+}
+
+export function stretchOcrLuminance(value: number, low: number, high: number) {
+  if (high <= low) return Math.max(0, Math.min(255, Math.round(value)));
+  return Math.max(0, Math.min(255, Math.round(((value - low) * 255) / (high - low))));
+}
+
+function applyOcrEnhancement(context: CanvasRenderingContext2D, width: number, height: number) {
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const histogram = new Uint32Array(256);
+
+  for (let index = 0; index < data.length; index += 4) {
+    const luminance = Math.round(
+      data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114,
+    );
+    histogram[luminance] += 1;
+  }
+
+  const total = width * height;
+  const low = findHistogramBoundary(histogram, total, 0.02);
+  const high = findHistogramBoundary(histogram, total, 0.98);
+  for (let index = 0; index < data.length; index += 4) {
+    const luminance = Math.round(
+      data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114,
+    );
+    const enhanced = stretchOcrLuminance(luminance, low, high);
+    data[index] = enhanced;
+    data[index + 1] = enhanced;
+    data[index + 2] = enhanced;
   }
   context.putImageData(imageData, 0, 0);
 }
@@ -126,4 +183,32 @@ export async function processImageDataUrl(source: string, transform: ImageTransf
     dataUrl = canvasToJpeg(canvas, quality);
   }
   return { dataUrl, mimeType: "image/jpeg", width: canvas.width, height: canvas.height };
+}
+
+export async function prepareImageForOcr(source: string) {
+  const image = await loadImage(source);
+  const size = calculateOcrImageSize(image.naturalWidth, image.naturalHeight);
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width + OCR_IMAGE_BORDER * 2;
+  canvas.height = size.height + OCR_IMAGE_BORDER * 2;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("当前浏览器无法增强识别图片。");
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(
+    image,
+    OCR_IMAGE_BORDER,
+    OCR_IMAGE_BORDER,
+    size.width,
+    size.height,
+  );
+  applyOcrEnhancement(
+    context,
+    canvas.width,
+    canvas.height,
+  );
+  return canvas;
 }
