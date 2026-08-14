@@ -9,6 +9,7 @@ import {
   formatUpdatedAt,
   insertTextAfterImageBlock,
   matchesNote,
+  mergeAdjacentTextBlocks,
   migrateNoteContent,
   removeImageFromContentBlocks,
   updateMindNode,
@@ -36,6 +37,41 @@ test("旧笔记会自动迁移为文字与图片混排内容块", () => {
   assert.deepEqual(migrated.contentBlocks?.map((block) => block.type), ["text", "image", "text"]);
   assert.equal(migrated.contentBlocks?.[0].type === "text" && migrated.contentBlocks[0].text, "第一段旧正文");
   assert.equal(migrated.contentBlocks?.[1].type === "image" && migrated.contentBlocks[1].imageId, "image-1");
+});
+
+test("相邻文字块会自动无损合并，图片仍然保留分隔", () => {
+  const blocks = [
+    { id: "text-a", type: "text", text: "第一部分，" },
+    { id: "text-b", type: "text", text: "第二部分。" },
+    { id: "image", type: "image", imageId: "image-1" },
+    { id: "text-c", type: "text", text: "图片后的文字" },
+    { id: "text-d", type: "text", text: "继续写" },
+  ];
+  const merged = mergeAdjacentTextBlocks(blocks);
+
+  assert.deepEqual(merged, [
+    { id: "text-a", type: "text", text: "第一部分，第二部分。" },
+    { id: "image", type: "image", imageId: "image-1" },
+    { id: "text-c", type: "text", text: "图片后的文字继续写" },
+  ]);
+  assert.equal(blocks.length, 5);
+});
+
+test("打开已有的连续文字块笔记时会自动整理为一个文字框", () => {
+  const note = {
+    ...DEFAULT_NOTES[0],
+    content: "旧的摘要",
+    contentBlocks: [
+      { id: "text-a", type: "text", text: "上半段" },
+      { id: "text-b", type: "text", text: "下半段" },
+    ],
+  };
+  const migrated = migrateNoteContent(note);
+
+  assert.deepEqual(migrated.contentBlocks, [
+    { id: "text-a", type: "text", text: "上半段下半段" },
+  ]);
+  assert.equal(migrated.content, "上半段下半段");
 });
 
 test("删除夹在两段文字之间的图片后会无损合并原文字", () => {

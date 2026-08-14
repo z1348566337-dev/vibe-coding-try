@@ -43,6 +43,7 @@ import {
   formatUpdatedAt,
   insertTextAfterImageBlock,
   matchesNote,
+  mergeAdjacentTextBlocks,
   migrateNoteContent,
   removeImageFromContentBlocks,
   updateMindNode,
@@ -265,7 +266,8 @@ export default function Home() {
   };
 
   const updateContentBlocks = (contentBlocks: NoteContentBlock[]) => {
-    updateCurrent({ contentBlocks, content: contentBlocksToText(contentBlocks) });
+    const mergedBlocks = mergeAdjacentTextBlocks(contentBlocks);
+    updateCurrent({ contentBlocks: mergedBlocks, content: contentBlocksToText(mergedBlocks) });
   };
 
   const updateTextBlock = (blockId: string, text: string) => {
@@ -557,10 +559,11 @@ export default function Home() {
           text: "",
         });
       }
+      const mergedBlocks = mergeAdjacentTextBlocks(blocks);
       updateCurrent({
         images: [...(current.images ?? []), ...additions],
-        contentBlocks: blocks,
-        content: contentBlocksToText(blocks),
+        contentBlocks: mergedBlocks,
+        content: contentBlocksToText(mergedBlocks),
       });
       setImageUrls((urls) => ({ ...urls, ...Object.fromEntries(stored.map((image) => [image.id, image.dataUrl])) }));
       setImageMessage(`已添加 ${additions.length} 张图片。`);

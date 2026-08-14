@@ -138,9 +138,34 @@ export function createNote(type: NoteType, now = Date.now()): Note {
   };
 }
 
+export function mergeAdjacentTextBlocks(blocks: NoteContentBlock[]) {
+  return blocks.reduce<NoteContentBlock[]>((merged, block) => {
+    const previous = merged.at(-1);
+    if (previous?.type === "text" && block.type === "text") {
+      merged[merged.length - 1] = {
+        ...previous,
+        text: previous.text + block.text,
+      };
+      return merged;
+    }
+
+    merged.push(block);
+    return merged;
+  }, []);
+}
+
 export function migrateNoteContent(note: Note): Note {
-  if (Array.isArray(note.contentBlocks) && note.contentBlocks.length > 0) return note;
   const images = note.images ?? [];
+  if (Array.isArray(note.contentBlocks) && note.contentBlocks.length > 0) {
+    const contentBlocks = mergeAdjacentTextBlocks(note.contentBlocks);
+    return {
+      ...note,
+      images,
+      contentBlocks,
+      content: contentBlocksToText(contentBlocks),
+    };
+  }
+
   const contentBlocks: NoteContentBlock[] = [
     { id: `${note.id}-legacy-text`, type: "text", text: note.content },
     ...images.map((image) => ({ id: `${image.id}-block`, type: "image" as const, imageId: image.id })),
@@ -167,15 +192,7 @@ export function removeImageFromContentBlocks(blocks: NoteContentBlock[], imageId
 
   const next = [...blocks];
   next.splice(imageIndex, 1);
-  const before = next[imageIndex - 1];
-  const after = next[imageIndex];
-  if (before?.type === "text" && after?.type === "text") {
-    next.splice(imageIndex - 1, 2, {
-      ...before,
-      text: before.text + after.text,
-    });
-  }
-  return next;
+  return mergeAdjacentTextBlocks(next);
 }
 
 export function insertTextAfterImageBlock(
