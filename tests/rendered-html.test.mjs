@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -23,6 +24,30 @@ test("首页可正常输出中文笔记界面", async () => {
   assert.doesNotMatch(html, /记下触动，梳理思考/);
   assert.match(html, /新建读后感/);
   assert.match(html, /思维导图/);
+  assert.match(html, /aria-label="快速记录一条想法"/);
+  assert.match(html, />速记<\/button>/);
+  assert.match(html, /数据管理/);
+  assert.match(html, /导出\/分享/);
+  assert.match(html, /图文笔记/);
+  assert.match(html, /▧ 图片/);
+  assert.match(html, /拍照扫描/);
   assert.match(html, /内容仅保存在此浏览器/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
+});
+
+test("具备 iPhone 主屏幕安装所需配置", async () => {
+  const response = await render();
+  const html = await response.text();
+  const manifest = JSON.parse(
+    await readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"),
+  );
+  const serviceWorker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
+
+  assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/i);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/i);
+  assert.match(html, /rel="apple-touch-icon" href="\/apple-touch-icon\.png"/i);
+  assert.equal(manifest.name, "杰森笔记");
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.icons.some((icon) => icon.sizes === "512x512"), true);
+  assert.match(serviceWorker, /addEventListener\("fetch"/);
 });
